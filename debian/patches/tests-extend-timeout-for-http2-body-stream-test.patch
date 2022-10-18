@@ -1,0 +1,32 @@
+From: Eric Long <i@hack3r.moe>
+Date: Mon, 29 Aug 2022 18:31:47 +0800
+Subject: tests: extend timeout for http2-body-stream-test
+
+https://bugs.debian.org/1018709
+---
+ tests/meson.build | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/tests/meson.build b/tests/meson.build
+index 9bf88be..50ea66b 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -79,7 +79,8 @@ tests = [
+   {'name': 'forms'},
+   {'name': 'header-parsing'},
+   {'name': 'http2'},
+-  {'name': 'http2-body-stream'},
++  {'name': 'http2-body-stream',
++   'timeout': 1000},
+   {'name': 'hsts'},
+   {'name': 'hsts-db'},
+   {'name': 'logger'},
+@@ -212,7 +213,7 @@ foreach test: tests
+     env : env,
+     is_parallel : test.get('parallel', true),
+     depends : test.get('depends', []),
+-    timeout : 60,
++    timeout : test.get('timeout', 60),
+     protocol : 'tap',
+   )
+ endforeach
