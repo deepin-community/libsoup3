@@ -29,7 +29,7 @@ Build-Depends: apache2 (>= 2.4) <!nocheck> <!noinsttest>,
                valac,
                winbind
 Build-Depends-Indep: libglib2.0-doc
-Standards-Version: 4.6.0
+Standards-Version: 4.6.2
 Vcs-Browser: https://salsa.debian.org/gnome-team/libsoup3
 Vcs-Git: https://salsa.debian.org/gnome-team/libsoup3.git
 Homepage: https://wiki.gnome.org/Projects/libsoup
@@ -41,12 +41,12 @@ Architecture: any
 Multi-Arch: same
 Depends: gir1.2-soup-3.0 (= ${binary:Version}),
          libbrotli-dev,
-         libglib2.0-dev (>= 2.69),
+         libglib2.0-dev (>= 2.69.1),
          libnghttp2-dev,
          libpsl-dev (>= 0.20),
          libsoup-3.0-0 (= ${binary:Version}),
          libsqlite3-dev,
-         libsysprof-4-dev [linux-any],
+         libsysprof-capture-4-dev [linux-any],
          zlib1g-dev,
          ${misc:Depends}
 Suggests: libsoup-3.0-doc

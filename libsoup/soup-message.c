@@ -111,6 +111,7 @@ enum {
 
 	GOT_INFORMATIONAL,
 	GOT_HEADERS,
+        GOT_BODY_DATA,
 	GOT_BODY,
 	CONTENT_SNIFFED,
 
@@ -435,6 +436,26 @@ soup_message_class_init (SoupMessageClass *message_class)
 			      NULL, NULL,
 			      NULL,
 			      G_TYPE_NONE, 0);
+
+        /**
+         * SoupMessage::got-body-data:
+         * @msg: the message
+         * @chunk_size: the number of bytes read
+         *
+         * Emitted after reading a portion of the message
+         * body from the network.
+         *
+         * Since: 3.4
+         */
+        signals[GOT_BODY_DATA] =
+                g_signal_new ("got-body-data",
+                              G_OBJECT_CLASS_TYPE (object_class),
+                              G_SIGNAL_RUN_FIRST,
+                              0,
+                              NULL, NULL,
+                              NULL,
+                              G_TYPE_NONE, 1,
+                              G_TYPE_UINT);
 
 	/**
 	 * SoupMessage::got-body:
@@ -955,7 +976,7 @@ soup_message_new (const char *method, const char *uri_string)
 	uri = g_uri_parse (uri_string, SOUP_HTTP_URI_FLAGS, NULL);
 	if (!uri)
 		return NULL;
-	if (!g_uri_get_host (uri)) {
+	if (!SOUP_URI_IS_VALID (uri)) {
 		g_uri_unref (uri);
 		return NULL;
 	}
@@ -1210,6 +1231,13 @@ void
 soup_message_got_headers (SoupMessage *msg)
 {
 	g_signal_emit (msg, signals[GOT_HEADERS], 0);
+}
+
+void
+soup_message_got_body_data (SoupMessage *msg,
+                            gsize        chunk_size)
+{
+        g_signal_emit (msg, signals[GOT_BODY_DATA], 0, chunk_size);
 }
 
 void
@@ -3287,4 +3315,43 @@ soup_message_is_misdirected_retry (SoupMessage *msg)
         SoupMessagePrivate *priv = soup_message_get_instance_private (msg);
 
         return priv->is_misdirected_retry;
+}
+
+/**
+ * soup_message_set_force_http1:
+ * @msg: The #SoupMessage
+ * @value: value to set
+ *
+ * Sets whether HTTP/1 version should be used when sending this message.
+ * Some connections can still override it, if needed.
+ *
+ * Note the value is unset after the message send is finished.
+ *
+ * Since: 3.4
+ */
+void
+soup_message_set_force_http1 (SoupMessage *msg,
+			      gboolean value)
+{
+	g_return_if_fail (SOUP_IS_MESSAGE (msg));
+
+	soup_message_set_force_http_version (msg, value ? SOUP_HTTP_1_1 : G_MAXUINT8);
+}
+
+/**
+ * soup_message_get_force_http1:
+ * @msg: The #SoupMessage
+ *
+ * Returns whether HTTP/1 version is currently demanded for the @msg send.
+ *
+ * Returns: %TRUE, when HTTP/1 is demanded, %FALSE otherwise.
+ *
+ * Since: 3.4
+ */
+gboolean
+soup_message_get_force_http1 (SoupMessage *msg)
+{
+	g_return_val_if_fail (SOUP_IS_MESSAGE (msg), FALSE);
+
+	return soup_message_get_force_http_version (msg) == SOUP_HTTP_1_1;
 }

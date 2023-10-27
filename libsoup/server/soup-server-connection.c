@@ -98,6 +98,7 @@ disconnect_internal (SoupServerConnection *conn)
         g_io_stream_close (priv->conn, NULL, NULL);
         g_signal_handlers_disconnect_by_data (priv->conn, conn);
         g_clear_object (&priv->conn);
+        g_clear_object (&priv->initial_msg);
 
         g_clear_pointer (&priv->io_data, soup_server_message_io_destroy);
 }
@@ -108,10 +109,12 @@ soup_server_connection_finalize (GObject *object)
         SoupServerConnection *conn = SOUP_SERVER_CONNECTION (object);
         SoupServerConnectionPrivate *priv = soup_server_connection_get_instance_private (conn);
 
-        if (priv->conn)
+        if (priv->conn) {
                 disconnect_internal (conn);
-
-        g_clear_pointer (&priv->io_data, soup_server_message_io_destroy);
+        } else {
+                g_clear_object (&priv->socket);
+                g_clear_pointer (&priv->io_data, soup_server_message_io_destroy);
+        }
 
         g_clear_object (&priv->iostream);
 
@@ -549,9 +552,10 @@ soup_server_connection_steal (SoupServerConnection *conn)
         priv = soup_server_connection_get_instance_private (conn);
 
         stream = priv->io_data ? soup_server_message_io_steal (priv->io_data) : NULL;
-        if (stream) {
+        if (stream && priv->socket) {
                 g_object_set_data_full (G_OBJECT (stream), "GSocket",
-                                        priv->socket, g_object_unref);
+                                        g_object_ref (priv->socket),
+                                        g_object_unref);
         }
 
         /* Cache local and remote address */
@@ -561,6 +565,8 @@ soup_server_connection_steal (SoupServerConnection *conn)
         g_clear_pointer (&priv->io_data, soup_server_message_io_destroy);
         g_clear_object (&priv->conn);
         g_clear_object (&priv->iostream);
+
+        g_signal_emit (conn, signals[DISCONNECTED], 0);
 
         return stream;
 }

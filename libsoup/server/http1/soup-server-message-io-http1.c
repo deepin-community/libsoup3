@@ -122,21 +122,22 @@ soup_server_message_io_http1_finished (SoupServerMessageIO *iface,
 
         g_object_ref (msg);
         g_clear_pointer (&io->msg_io, soup_message_io_http1_free);
-	if (completion_cb)
-                completion_cb (G_OBJECT (msg), completion, completion_data);
         conn = soup_server_message_get_connection (msg);
-        if (completion == SOUP_MESSAGE_IO_COMPLETE &&
-            soup_server_connection_is_connected (conn) &&
-            soup_server_message_is_keepalive (msg)) {
-                io->msg_io = soup_message_io_http1_new (soup_server_message_new (conn));
-                io->msg_io->base.io_source = soup_message_io_data_get_source (&io->msg_io->base,
-                                                                              G_OBJECT (io->msg_io->msg),
-                                                                              io->istream,
-                                                                              io->ostream,
-                                                                              NULL,
-                                                                              (SoupMessageIOSourceFunc)io_run_ready,
-                                                                              NULL);
-                g_source_attach (io->msg_io->base.io_source, io->msg_io->async_context);
+	if (completion_cb) {
+                completion_cb (G_OBJECT (msg), completion, completion_data);
+                if (soup_server_connection_is_connected (conn)) {
+                        io->msg_io = soup_message_io_http1_new (soup_server_message_new (conn));
+                        io->msg_io->base.io_source = soup_message_io_data_get_source (&io->msg_io->base,
+                                                                                      G_OBJECT (io->msg_io->msg),
+                                                                                      io->istream,
+                                                                                      io->ostream,
+                                                                                      NULL,
+                                                                                      (SoupMessageIOSourceFunc)io_run_ready,
+                                                                                      NULL);
+                        g_source_attach (io->msg_io->base.io_source, io->msg_io->async_context);
+                }
+        } else {
+                soup_server_connection_disconnect (conn);
         }
         g_object_unref (msg);
 }
@@ -925,6 +926,14 @@ io_run (SoupServerMessageIOHTTP1 *server_io)
                                 SOUP_MESSAGE_IO_STATE_DONE,
                                 SOUP_MESSAGE_IO_STATE_DONE,
                                 &error);
+
+        if (soup_server_message_get_io_data (msg) != (SoupServerMessageIO *)server_io) {
+                g_object_unref (msg);
+                g_clear_error (&error);
+
+                return;
+        }
+
         server_io->in_io_run = FALSE;
 
         if (success) {
