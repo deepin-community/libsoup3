@@ -48,6 +48,9 @@ typedef struct {
 
 	GCancellable *cancellable;
         GThread *owner;
+
+        int window_size;
+        int stream_window_size;
 } SoupConnectionPrivate;
 
 G_DEFINE_FINAL_TYPE_WITH_PRIVATE (SoupConnection, soup_connection, G_TYPE_OBJECT)
@@ -91,6 +94,9 @@ static gboolean idle_timeout (gpointer conn);
  */
 #define SOUP_CONNECTION_UNUSED_TIMEOUT 3
 
+#define HTTP2_INITIAL_WINDOW_SIZE (15 * 1024 * 1024) /* 15MB */
+#define HTTP2_INITIAL_STREAM_WINDOW_SIZE (6 * 1024 * 1024) /* 6MB */
+
 static void
 soup_connection_init (SoupConnection *conn)
 {
@@ -99,6 +105,8 @@ soup_connection_init (SoupConnection *conn)
         priv->http_version = SOUP_HTTP_1_1;
         priv->force_http_version = G_MAXUINT8;
         priv->owner = g_thread_self ();
+        priv->window_size = HTTP2_INITIAL_WINDOW_SIZE;
+        priv->stream_window_size = HTTP2_INITIAL_STREAM_WINDOW_SIZE;
 }
 
 static void
@@ -170,7 +178,11 @@ soup_connection_set_property (GObject *object, guint prop_id,
         case PROP_CONTEXT:
                 priv->idle_timeout_src = g_timeout_source_new (0);
                 g_source_set_ready_time (priv->idle_timeout_src, -1);
+#if GLIB_CHECK_VERSION(2, 70, 0)
+                g_source_set_static_name (priv->idle_timeout_src, "Soup connection idle timeout");
+#else
                 g_source_set_name (priv->idle_timeout_src, "Soup connection idle timeout");
+#endif
                 g_source_set_callback (priv->idle_timeout_src, idle_timeout, object, NULL);
                 g_source_attach (priv->idle_timeout_src, g_value_get_pointer (value));
                 break;
@@ -794,6 +806,7 @@ soup_connection_connect_async (SoupConnection      *conn,
 
         priv->cancellable = cancellable ? g_object_ref (cancellable) : g_cancellable_new ();
         task = g_task_new (conn, priv->cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_connection_connect_async);
         g_task_set_priority (task, io_priority);
 
         client = new_socket_client (conn);
@@ -919,6 +932,7 @@ soup_connection_tunnel_handshake_async (SoupConnection     *conn,
 
         priv->cancellable = cancellable ? g_object_ref (cancellable) : g_cancellable_new ();
         task = g_task_new (conn, priv->cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_connection_tunnel_handshake_async);
         g_task_set_priority (task, io_priority);
 
         tls_connection = new_tls_connection (conn, G_SOCKET_CONNECTION (priv->connection), &error);
@@ -1376,4 +1390,38 @@ soup_connection_get_owner (SoupConnection *conn)
         SoupConnectionPrivate *priv = soup_connection_get_instance_private (conn);
 
         return priv->owner;
+}
+
+void
+soup_connection_set_http2_initial_window_size (SoupConnection *conn,
+                                               int             window_size)
+{
+        SoupConnectionPrivate *priv = soup_connection_get_instance_private (conn);
+
+        priv->window_size = window_size;
+}
+
+int
+soup_connection_get_http2_initial_window_size (SoupConnection *conn)
+{
+        SoupConnectionPrivate *priv = soup_connection_get_instance_private (conn);
+
+        return priv->window_size;
+}
+
+void
+soup_connection_set_http2_initial_stream_window_size (SoupConnection *conn,
+                                                      int             window_size)
+{
+        SoupConnectionPrivate *priv = soup_connection_get_instance_private (conn);
+
+        priv->stream_window_size = window_size;
+}
+
+int
+soup_connection_get_http2_initial_stream_window_size (SoupConnection *conn)
+{
+        SoupConnectionPrivate *priv = soup_connection_get_instance_private (conn);
+
+        return priv->stream_window_size;
 }

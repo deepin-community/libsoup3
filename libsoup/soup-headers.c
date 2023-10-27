@@ -902,7 +902,7 @@ append_param_rfc5987 (GString    *string,
 
 	g_string_append (string, name);
 	g_string_append (string, "*=UTF-8''");
-	encoded = g_uri_escape_string (value, "*'%()<>@,;:\\\"/[]?=", FALSE);
+	encoded = g_uri_escape_string (value, "!#$&+-.^_`|~", FALSE);
 	g_string_append (string, encoded);
 	g_free (encoded);
 }
@@ -986,7 +986,7 @@ soup_header_g_string_append_param_quoted (GString    *string,
  * soup_header_g_string_append_param:
  * @string: a #GString being used to construct an HTTP header value
  * @name: a parameter name
- * @value: a parameter value, or %NULL
+ * @value: (nullable): a parameter value, or %NULL
  *
  * Appends something like `name=value` to @string, taking care to quote @value
  * if needed, and if so, to escape any quotes or backslashes in @value.

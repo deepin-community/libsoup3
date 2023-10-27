@@ -69,8 +69,6 @@
  **/
 
 typedef struct {
-	gboolean disposed;
-
 	GTlsDatabase *tlsdb;
 	GTlsInteraction *tls_interaction;
 	gboolean tlsdb_use_default;
@@ -88,6 +86,7 @@ typedef struct {
 	GQueue *queue;
         GMutex queue_sources_mutex;
 	GHashTable *queue_sources;
+        gint num_async_items;
         guint in_async_run_queue;
         gboolean needs_queue_sort;
 
@@ -107,6 +106,9 @@ static void async_send_request_running (SoupSession *session, SoupMessageQueueIt
 static void soup_session_process_queue_item (SoupSession          *session,
                                              SoupMessageQueueItem *item,
                                              gboolean              loop);
+
+static void async_send_request_return_result (SoupMessageQueueItem *item,
+                                              gpointer stream, GError *error);
 
 #define SOUP_SESSION_MAX_CONNS_DEFAULT 10
 #define SOUP_SESSION_MAX_CONNS_PER_HOST_DEFAULT 2
@@ -169,7 +171,7 @@ G_DEFINE_QUARK (soup-session-error-quark, soup_session_error)
 
 typedef struct {
 	GSource source;
-	SoupSession* session;
+        GWeakRef session;
         guint num_items;
 } SoupMessageQueueSource;
 
@@ -178,18 +180,33 @@ queue_dispatch (GSource    *source,
 		GSourceFunc callback,
 		gpointer    user_data)
 {
-	SoupSession *session = ((SoupMessageQueueSource *)source)->session;
+        SoupMessageQueueSource *queue_source = (SoupMessageQueueSource *)source;
+        SoupSession *session = g_weak_ref_get (&queue_source->session);
+
+        if (!session)
+                return G_SOURCE_REMOVE;
 
 	g_source_set_ready_time (source, -1);
 	async_run_queue (session);
+        g_object_unref (session);
+
 	return G_SOURCE_CONTINUE;
+}
+
+static void
+queue_finalize (GSource *source)
+{
+        SoupMessageQueueSource *queue_source = (SoupMessageQueueSource *)source;
+
+        g_weak_ref_clear (&queue_source->session);
 }
 
 static GSourceFuncs queue_source_funcs = {
 	NULL, //queue_prepare,
 	NULL, //queue_check,
 	queue_dispatch,
-	NULL, NULL, NULL
+        queue_finalize,
+	NULL, NULL
 };
 
 static void
@@ -199,13 +216,16 @@ soup_session_add_queue_source (SoupSession  *session,
         SoupSessionPrivate *priv = soup_session_get_instance_private (session);
         SoupMessageQueueSource *queue_source;
 
+        if (!priv->queue_sources)
+                priv->queue_sources = g_hash_table_new_full (NULL, NULL, NULL, (GDestroyNotify)g_source_unref);
+
         queue_source = g_hash_table_lookup (priv->queue_sources, context);
         if (!queue_source) {
                 GSource *source;
 
                 source = g_source_new (&queue_source_funcs, sizeof (SoupMessageQueueSource));
                 queue_source = (SoupMessageQueueSource *)source;
-                queue_source->session = session;
+                g_weak_ref_init (&queue_source->session, session);
                 queue_source->num_items = 0;
                 g_source_set_name (source, "SoupMessageQueue");
                 g_source_set_can_recurse (source, TRUE);
@@ -214,7 +234,6 @@ soup_session_add_queue_source (SoupSession  *session,
         }
 
         queue_source->num_items++;
-
 }
 
 static void
@@ -223,7 +242,7 @@ soup_session_add_queue_source_for_item (SoupSession          *session,
 {
         SoupSessionPrivate *priv = soup_session_get_instance_private (session);
 
-        if (item->context == priv->context)
+        if (!item->async)
                 return;
 
         g_mutex_lock (&priv->queue_sources_mutex);
@@ -255,6 +274,9 @@ soup_session_remove_queue_source_for_item (SoupSession          *session,
 {
         SoupSessionPrivate *priv = soup_session_get_instance_private (session);
 
+        if (!item->async)
+                return;
+
         if (item->context == priv->context)
                 return;
 
@@ -273,8 +295,6 @@ soup_session_init (SoupSession *session)
         g_mutex_init (&priv->queue_mutex);
 	priv->queue = g_queue_new ();
         g_mutex_init (&priv->queue_sources_mutex);
-        priv->queue_sources = g_hash_table_new_full (NULL, NULL, NULL, (GDestroyNotify)g_source_unref);
-        soup_session_add_queue_source (session, priv->context);
 
         priv->io_timeout = priv->idle_timeout = 60;
 
@@ -313,14 +333,14 @@ soup_session_dispose (GObject *object)
 	SoupSession *session = SOUP_SESSION (object);
 	SoupSessionPrivate *priv = soup_session_get_instance_private (session);
 
-	priv->disposed = TRUE;
 	soup_session_abort (session);
 	g_warn_if_fail (soup_connection_manager_get_num_conns (priv->conn_manager) == 0);
 
 	while (priv->features)
 		soup_session_remove_feature (session, priv->features->data);
 
-        g_hash_table_foreach (priv->queue_sources, (GHFunc)destroy_queue_source, NULL);
+        if (priv->queue_sources)
+                g_hash_table_foreach (priv->queue_sources, (GHFunc)destroy_queue_source, NULL);
 
 	G_OBJECT_CLASS (soup_session_parent_class)->dispose (object);
 }
@@ -334,7 +354,7 @@ soup_session_finalize (GObject *object)
 	g_warn_if_fail (g_queue_is_empty (priv->queue));
 	g_queue_free (priv->queue);
         g_mutex_clear (&priv->queue_mutex);
-        g_hash_table_destroy (priv->queue_sources);
+        g_clear_pointer (&priv->queue_sources, g_hash_table_destroy);
         g_mutex_clear (&priv->queue_sources_mutex);
         g_main_context_unref (priv->context);
 
@@ -1181,7 +1201,7 @@ soup_session_requeue_item (SoupSession          *session,
  * request, then @msg will be modified accordingly.
  *
  * If @msg has already been redirected too many times, this will
- * cause it to fail with %SOUP_STATUS_TOO_MANY_REDIRECTS.
+ * cause it to fail with %SOUP_SESSION_ERROR_TOO_MANY_REDIRECTS.
  *
  * Returns: %TRUE if a redirection was applied, %FALSE if not
  *   (eg, because there was no Location header, or it could not be
@@ -1322,6 +1342,9 @@ soup_session_append_queue_item (SoupSession        *session,
 
         soup_session_add_queue_source_for_item (session, item);
 
+        if (async)
+                g_atomic_int_inc (&priv->num_async_items);
+
 	if (!soup_message_query_flags (msg, SOUP_MESSAGE_NO_REDIRECT)) {
 		soup_message_add_header_handler (
 			msg, "got_body", "Location",
@@ -1346,7 +1369,20 @@ soup_session_append_queue_item (SoupSession        *session,
 	return item;
 }
 
-static void
+static gboolean
+finish_request_if_item_cancelled (SoupMessageQueueItem *item)
+{
+        if (!g_cancellable_is_cancelled (item->cancellable))
+                return FALSE;
+
+        if (item->async)
+                async_send_request_return_result (item, NULL, NULL);
+
+        item->state = SOUP_MESSAGE_FINISHING;
+        return TRUE;
+}
+
+static gboolean
 soup_session_send_queue_item (SoupSession *session,
 			      SoupMessageQueueItem *item,
 			      SoupMessageIOCompletionFn completion_cb)
@@ -1385,9 +1421,13 @@ soup_session_send_queue_item (SoupSession *session,
 		soup_message_headers_set_content_length (request_headers, 0);
 	}
 
-	soup_message_starting (item->msg);
-	if (item->state == SOUP_MESSAGE_RUNNING)
-                soup_message_send_item (item->msg, item, completion_cb, item);
+        soup_message_starting (item->msg);
+        finish_request_if_item_cancelled (item);
+        if (item->state != SOUP_MESSAGE_RUNNING)
+                return FALSE;
+
+        soup_message_send_item (item->msg, item, completion_cb, item);
+        return TRUE;
 }
 
 static void
@@ -1409,6 +1449,9 @@ soup_session_unqueue_item (SoupSession          *session,
         g_mutex_unlock (&priv->queue_mutex);
 
         soup_session_remove_queue_source_for_item (session, item);
+
+        if (item->async)
+                g_atomic_int_dec_and_test (&priv->num_async_items);
 
 	/* g_signal_handlers_disconnect_by_func doesn't work if you
 	 * have a metamarshal, meaning it doesn't work with
@@ -1448,9 +1491,7 @@ message_completed (SoupMessage *msg, SoupMessageIOCompletion completion, gpointe
 
 	if (item->state != SOUP_MESSAGE_RESTARTING) {
 		item->state = SOUP_MESSAGE_FINISHING;
-
-		if (!item->async)
-			soup_session_process_queue_item (item->session, item, TRUE);
+                soup_session_process_queue_item (item->session, item, !item->async);
 	}
 }
 
@@ -1520,14 +1561,18 @@ tunnel_message_completed (SoupMessage *msg, SoupMessageIOCompletion completion,
                         g_object_unref (conn);
                         g_clear_object (&tunnel_item->error);
 			tunnel_item->state = SOUP_MESSAGE_RUNNING;
-			soup_session_send_queue_item (session, tunnel_item,
-						      (SoupMessageIOCompletionFn)tunnel_message_completed);
-			soup_message_io_run (msg, !tunnel_item->async);
+                        if (soup_session_send_queue_item (session, tunnel_item, (SoupMessageIOCompletionFn)tunnel_message_completed))
+                                soup_message_io_run (msg, !tunnel_item->async);
+                        else
+                                tunnel_message_completed (msg, SOUP_MESSAGE_IO_INTERRUPTED, tunnel_item);
 			return;
 		}
 
 		item->state = SOUP_MESSAGE_RESTARTING;
 	}
+
+        if (item->state == SOUP_MESSAGE_FINISHING)
+                soup_message_finished (tunnel_item->msg);
 
 	tunnel_item->state = SOUP_MESSAGE_FINISHED;
 	soup_session_unqueue_item (session, tunnel_item);
@@ -1580,9 +1625,10 @@ tunnel_connect (SoupMessageQueueItem *item)
         g_clear_object (&conn);
 	tunnel_item->state = SOUP_MESSAGE_RUNNING;
 
-	soup_session_send_queue_item (session, tunnel_item,
-				      (SoupMessageIOCompletionFn)tunnel_message_completed);
-	soup_message_io_run (msg, !item->async);
+        if (soup_session_send_queue_item (session, tunnel_item, (SoupMessageIOCompletionFn)tunnel_message_completed))
+                soup_message_io_run (msg, !item->async);
+        else
+                tunnel_message_completed (msg, SOUP_MESSAGE_IO_INTERRUPTED, tunnel_item);
 	g_object_unref (msg);
 }
 
@@ -1721,20 +1767,24 @@ soup_session_process_queue_item (SoupSession          *session,
 
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
-			if (!soup_session_ensure_item_connection (session, item))
-				return;
+                        if (!finish_request_if_item_cancelled (item)) {
+                                if (!soup_session_ensure_item_connection (session, item))
+                                        return;
+                        }
 			break;
 
-		case SOUP_MESSAGE_CONNECTED: {
-                        SoupConnection *conn = soup_message_get_connection (item->msg);
+		case SOUP_MESSAGE_CONNECTED:
+                        if (!finish_request_if_item_cancelled (item)) {
+                                SoupConnection *conn = soup_message_get_connection (item->msg);
 
-			if (soup_connection_is_tunnelled (conn))
+                                if (soup_connection_is_tunnelled (conn))
 				tunnel_connect (item);
-			else
-				item->state = SOUP_MESSAGE_READY;
-                        g_object_unref (conn);
+                                else
+                                        item->state = SOUP_MESSAGE_READY;
+                                g_object_unref (conn);
+                        }
 			break;
-                }
+
 		case SOUP_MESSAGE_READY:
 			if (item->connect_only) {
 				item->state = SOUP_MESSAGE_FINISHING;
@@ -1746,16 +1796,17 @@ soup_session_process_queue_item (SoupSession          *session,
 				break;
 			}
 
-			item->state = SOUP_MESSAGE_RUNNING;
+                        if (!finish_request_if_item_cancelled (item)) {
+                                item->state = SOUP_MESSAGE_RUNNING;
 
-                        soup_message_set_metrics_timestamp (item->msg, SOUP_MESSAGE_METRICS_REQUEST_START);
+                                soup_message_set_metrics_timestamp (item->msg, SOUP_MESSAGE_METRICS_REQUEST_START);
 
-			soup_session_send_queue_item (session, item,
-						      (SoupMessageIOCompletionFn)message_completed);
+                                if (soup_session_send_queue_item (session, item, (SoupMessageIOCompletionFn)message_completed) && item->async)
+                                        async_send_request_running (session, item);
 
-			if (item->async)
-				async_send_request_running (session, item);
-			return;
+                                return;
+                        }
+                        break;
 
 		case SOUP_MESSAGE_RUNNING:
 			if (item->async)
@@ -1817,7 +1868,6 @@ async_run_queue (SoupSession *session)
         GList *items = NULL;
         GList *i;
 
-	g_object_ref (session);
         g_atomic_int_inc (&priv->in_async_run_queue);
 	soup_connection_manager_cleanup (priv->conn_manager, FALSE);
 
@@ -1840,8 +1890,6 @@ async_run_queue (SoupSession *session)
                 g_mutex_unlock (&priv->queue_mutex);
                 g_atomic_int_set (&priv->needs_queue_sort, FALSE);
         }
-
-	g_object_unref (session);
 }
 
 /**
@@ -1898,8 +1946,12 @@ soup_session_kick_queue (SoupSession *session)
 {
 	SoupSessionPrivate *priv = soup_session_get_instance_private (session);
 
+        if (g_atomic_int_get (&priv->num_async_items) <= 0)
+                return;
+
         g_mutex_lock (&priv->queue_sources_mutex);
-        g_hash_table_foreach (priv->queue_sources, (GHFunc)kick_queue_source, NULL);
+        if (priv->queue_sources)
+                g_hash_table_foreach (priv->queue_sources, (GHFunc)kick_queue_source, NULL);
         g_mutex_unlock (&priv->queue_sources_mutex);
 }
 
@@ -3013,6 +3065,7 @@ soup_session_return_error_if_message_already_in_queue (SoupSession         *sess
                                            SOUP_SESSION_ERROR_MESSAGE_ALREADY_IN_QUEUE,
                                            _("Message is already in session queue"));
         task = g_task_new (session, cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_session_return_error_if_message_already_in_queue);
         g_task_set_task_data (task, item, (GDestroyNotify)soup_message_queue_item_unref);
         g_task_return_error (task, g_error_copy (item->error));
         g_object_unref (task);
@@ -3061,6 +3114,7 @@ soup_session_send_async (SoupSession         *session,
 			  G_CALLBACK (async_send_request_finished), item);
 
 	item->task = g_task_new (session, item->cancellable, callback, user_data);
+	g_task_set_source_tag (item->task, soup_session_send_async);
 	g_task_set_priority (item->task, io_priority);
 	g_task_set_task_data (item->task, item, (GDestroyNotify) soup_message_queue_item_unref);
 	if (async_respond_from_cache (session, item))
@@ -3168,8 +3222,10 @@ soup_session_send (SoupSession   *session,
 	while (!stream) {
 		/* Get a connection, etc */
 		soup_session_process_queue_item (session, item, TRUE);
-		if (item->state != SOUP_MESSAGE_RUNNING)
+		if (item->state != SOUP_MESSAGE_RUNNING) {
+                        g_cancellable_set_error_if_cancelled (item->cancellable, &my_error);
 			break;
+                }
 
 		/* Send request, read headers */
 		if (!soup_message_io_run_until_read (msg, item->cancellable, &my_error)) {
@@ -3248,54 +3304,28 @@ soup_session_send (SoupSession   *session,
 }
 
 static void
-send_and_read_splice_ready_cb (GOutputStream *ostream,
-			       GAsyncResult  *result,
-			       GTask         *task)
-{
-	GError *error = NULL;
-
-	if (g_output_stream_splice_finish (ostream, result, &error) != -1) {
-		g_task_return_pointer (task,
-				       g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (ostream)),
-				       (GDestroyNotify)g_bytes_unref);
-	} else {
-		g_task_return_error (task, error);
-	}
-	g_object_unref (task);
-}
-
-static void
-send_and_read_stream_ready_cb (SoupSession  *session,
+send_and_read_splice_ready_cb (SoupSession  *session,
 			       GAsyncResult *result,
 			       GTask        *task)
 {
-	GInputStream *stream;
 	GOutputStream *ostream;
 	GError *error = NULL;
+
+        ostream = g_task_get_task_data (task);
 
         // In order for soup_session_get_async_result_message() to work it must
         // have the task data for the task it wrapped
         SoupMessageQueueItem *item = g_task_get_task_data (G_TASK (result));
         g_task_set_task_data (task, soup_message_queue_item_ref (item), (GDestroyNotify)soup_message_queue_item_unref);
 
-	stream = soup_session_send_finish (session, result, &error);
-	if (!stream) {
-		g_task_return_error (task, error);
-		g_object_unref (task);
-		return;
-	}
-
-	ostream = g_memory_output_stream_new_resizable ();
-	g_output_stream_splice_async (ostream,
-				      stream,
-				      G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
-				      G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
-				      g_task_get_priority (task),
-				      g_task_get_cancellable (task),
-				      (GAsyncReadyCallback)send_and_read_splice_ready_cb,
-				      task);
-	g_object_unref (ostream);
-	g_object_unref (stream);
+        if (soup_session_send_and_splice_finish (session, result, &error) != -1) {
+                g_task_return_pointer (task,
+                                       g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (ostream)),
+                                       (GDestroyNotify)g_bytes_unref);
+        } else {
+                g_task_return_error (task, error);
+        }
+        g_object_unref (task);
 }
 
 /**
@@ -3326,18 +3356,24 @@ soup_session_send_and_read_async (SoupSession        *session,
 				  gpointer            user_data)
 {
 	GTask *task;
+        GOutputStream *ostream;
 
 	g_return_if_fail (SOUP_IS_SESSION (session));
 	g_return_if_fail (SOUP_IS_MESSAGE (msg));
 
+        ostream = g_memory_output_stream_new_resizable ();
 	task = g_task_new (session, cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_session_send_and_read_async);
 	g_task_set_priority (task, io_priority);
+        g_task_set_task_data (task, ostream, g_object_unref);
 
-	soup_session_send_async (session, msg,
-				 g_task_get_priority (task),
-				 g_task_get_cancellable (task),
-				 (GAsyncReadyCallback)send_and_read_stream_ready_cb,
-				 task);
+        soup_session_send_and_splice_async (session, msg, ostream,
+                                            G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
+                                            G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
+                                            g_task_get_priority (task),
+                                            g_task_get_cancellable (task),
+                                            (GAsyncReadyCallback)send_and_read_splice_ready_cb,
+                                            task);
 }
 
 /**
@@ -3386,26 +3422,192 @@ soup_session_send_and_read (SoupSession  *session,
 			    GCancellable *cancellable,
 			    GError      **error)
 {
-	GInputStream *stream;
 	GOutputStream *ostream;
 	GBytes *bytes = NULL;
 
-	stream = soup_session_send (session, msg, cancellable, error);
-	if (!stream)
-		return NULL;
-
-	ostream = g_memory_output_stream_new_resizable ();
-	if (g_output_stream_splice (ostream,
-				    stream,
-				    G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
-				    G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
-				    cancellable, error) != -1) {
-		bytes = g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (ostream));
-	}
-	g_object_unref (ostream);
-	g_object_unref (stream);
+        ostream = g_memory_output_stream_new_resizable ();
+        if (soup_session_send_and_splice (session, msg, ostream,
+                                          G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
+                                          G_OUTPUT_STREAM_SPLICE_CLOSE_TARGET,
+                                          cancellable, error) != -1)
+                bytes = g_memory_output_stream_steal_as_bytes (G_MEMORY_OUTPUT_STREAM (ostream));
+        g_object_unref (ostream);
 
 	return bytes;
+}
+
+typedef struct {
+        GOutputStream *out_stream;
+        GOutputStreamSpliceFlags flags;
+        GTask *task;
+} SendAndSpliceAsyncData;
+
+static void
+send_and_splice_async_data_free (SendAndSpliceAsyncData *data)
+{
+        g_clear_object (&data->out_stream);
+        g_clear_object (&data->task);
+
+        g_free (data);
+}
+
+static void
+send_and_splice_ready_cb (GOutputStream *ostream,
+                          GAsyncResult  *result,
+                          GTask         *task)
+{
+        GError *error = NULL;
+        gssize retval;
+
+        retval = g_output_stream_splice_finish (ostream, result, &error);
+        if (retval != -1)
+                g_task_return_int (task, retval);
+        else
+                g_task_return_error (task, error);
+        g_object_unref (task);
+}
+
+static void
+send_and_splice_stream_ready_cb (SoupSession            *session,
+                                 GAsyncResult           *result,
+                                 SendAndSpliceAsyncData *data)
+{
+        GInputStream *stream;
+        GTask *task;
+        GError *error = NULL;
+
+        // In order for soup_session_get_async_result_message() to work it must
+        // have the task data for the task it wrapped
+        SoupMessageQueueItem *item = g_task_get_task_data (G_TASK (result));
+        g_task_set_task_data (data->task, soup_message_queue_item_ref (item), (GDestroyNotify)soup_message_queue_item_unref);
+
+        stream = soup_session_send_finish (session, result, &error);
+        if (!stream) {
+                g_task_return_error (data->task, error);
+                send_and_splice_async_data_free (data);
+                return;
+        }
+
+        task = g_steal_pointer (&data->task);
+        g_output_stream_splice_async (data->out_stream, stream, data->flags,
+                                      g_task_get_priority (task),
+                                      g_task_get_cancellable (task),
+                                      (GAsyncReadyCallback)send_and_splice_ready_cb,
+                                      task);
+        g_object_unref (stream);
+        send_and_splice_async_data_free (data);
+}
+
+/**
+ * soup_session_send_and_splice_async:
+ * @session: a #SoupSession
+ * @msg: (transfer none): a #SoupMessage
+ * @out_stream: (transfer none): a #GOutputStream
+ * @flags: a set of #GOutputStreamSpliceFlags
+ * @io_priority: the I/O priority of the request
+ * @cancellable: (nullable): a #GCancellable
+ * @callback: (scope async): the callback to invoke
+ * @user_data: data for @callback
+ *
+ * Asynchronously sends @msg and splices the response body stream into @out_stream.
+ * When @callback is called, then either @msg has been sent and its response body
+ * spliced, or else an error has occurred.
+ *
+ * See [method@Session.send] for more details on the general semantics.
+ *
+ * Since: 3.4
+ */
+void
+soup_session_send_and_splice_async (SoupSession             *session,
+                                    SoupMessage             *msg,
+                                    GOutputStream           *out_stream,
+                                    GOutputStreamSpliceFlags flags,
+                                    int                      io_priority,
+                                    GCancellable            *cancellable,
+                                    GAsyncReadyCallback      callback,
+                                    gpointer                 user_data)
+{
+        SendAndSpliceAsyncData *data;
+
+        g_return_if_fail (SOUP_IS_SESSION (session));
+        g_return_if_fail (SOUP_IS_MESSAGE (msg));
+        g_return_if_fail (G_IS_OUTPUT_STREAM (out_stream));
+
+        data = g_new (SendAndSpliceAsyncData, 1);
+        data->out_stream = g_object_ref (out_stream);
+        data->flags = flags;
+        data->task = g_task_new (session, cancellable, callback, user_data);
+        g_task_set_source_tag (data->task, soup_session_send_and_splice_async);
+        g_task_set_priority (data->task, io_priority);
+
+        soup_session_send_async (session, msg,
+                                 g_task_get_priority (data->task),
+                                 g_task_get_cancellable (data->task),
+                                 (GAsyncReadyCallback)send_and_splice_stream_ready_cb,
+                                 data);
+}
+
+/**
+ * soup_session_send_and_splice_finish:
+ * @session: a #SoupSession
+ * @result: the #GAsyncResult passed to your callback
+ * @error: return location for a #GError, or %NULL
+ *
+ * Gets the response to a [method@Session.send_and_splice_async].
+ *
+ * Returns: a #gssize containing the size of the data spliced, or -1 if an error occurred.
+ *
+ * Since: 3.4
+ */
+gssize
+soup_session_send_and_splice_finish (SoupSession  *session,
+                                     GAsyncResult *result,
+                                     GError      **error)
+{
+        g_return_val_if_fail (SOUP_IS_SESSION (session), -1);
+        g_return_val_if_fail (g_task_is_valid (result, session), -1);
+
+        return g_task_propagate_int (G_TASK (result), error);
+}
+
+/**
+ * soup_session_send_and_splice:
+ * @session: a #SoupSession
+ * @msg: (transfer none): a #SoupMessage
+ * @out_stream: (transfer none): a #GOutputStream
+ * @flags: a set of #GOutputStreamSpliceFlags
+ * @cancellable: (nullable): a #GCancellable
+ * @error: return location for a #GError, or %NULL
+ *
+ * Synchronously sends @msg and splices the response body stream into @out_stream.
+ *
+ * See [method@Session.send] for more details on the general semantics.
+ *
+ * Returns: a #gssize containing the size of the data spliced, or -1 if an error occurred.
+ *
+ * Since: 3.4
+ */
+gssize
+soup_session_send_and_splice (SoupSession             *session,
+                              SoupMessage             *msg,
+                              GOutputStream           *out_stream,
+                              GOutputStreamSpliceFlags flags,
+                              GCancellable            *cancellable,
+                              GError                 **error)
+{
+        GInputStream *stream;
+        gssize retval;
+
+        g_return_val_if_fail (G_IS_OUTPUT_STREAM (out_stream), -1);
+
+        stream = soup_session_send (session, msg, cancellable, error);
+        if (!stream)
+                return -1;
+
+        retval = g_output_stream_splice (out_stream, stream, flags, cancellable, error);
+        g_object_unref (stream);
+
+        return retval;
 }
 
 /**
@@ -3475,8 +3677,6 @@ soup_session_get_supported_websocket_extensions_for_message (SoupSession *sessio
         return soup_websocket_extension_manager_get_supported_extensions (SOUP_WEBSOCKET_EXTENSION_MANAGER (extension_manager));
 }
 
-static void websocket_connect_async_stop (SoupMessage *msg, gpointer user_data);
-
 static void
 websocket_connect_async_complete (SoupMessage *msg, gpointer user_data)
 {
@@ -3509,11 +3709,10 @@ websocket_connect_async_stop (SoupMessage *msg, gpointer user_data)
 	GList *accepted_extensions = NULL;
 	GError *error = NULL;
 
-	g_signal_handlers_disconnect_matched (msg, G_SIGNAL_MATCH_DATA,
-					      0, 0, NULL, NULL, task);
-
 	supported_extensions = soup_session_get_supported_websocket_extensions_for_message (session, msg);
 	if (soup_websocket_client_verify_handshake (item->msg, supported_extensions, &accepted_extensions, &error)) {
+                g_signal_handlers_disconnect_matched (msg, G_SIGNAL_MATCH_DATA,
+                                                      0, 0, NULL, NULL, task);
 		stream = soup_session_steal_connection (item->session, item->msg);
 		client = soup_websocket_connection_new (stream,
 							soup_message_get_uri (item->msg),
@@ -3528,9 +3727,9 @@ websocket_connect_async_stop (SoupMessage *msg, gpointer user_data)
 		return;
 	}
 
-	soup_message_io_finished (item->msg);
-	g_task_return_error (task, error);
-	g_object_unref (task);
+        g_assert (!item->error);
+        item->error = error;
+        soup_message_io_finished (item->msg);
 }
 
 /**
@@ -3603,6 +3802,7 @@ soup_session_websocket_connect_async (SoupSession          *session,
 	item->io_priority = io_priority;
 
         task = g_task_new (session, item->cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_session_websocket_connect_async);
 	g_task_set_task_data (task, item, (GDestroyNotify) soup_message_queue_item_unref);
 
 	soup_message_add_status_code_handler (msg, "got-informational",
@@ -3713,6 +3913,7 @@ soup_session_preconnect_async (SoupSession        *session,
         soup_message_set_is_preconnect (msg, TRUE);
 
         task = g_task_new (session, item->cancellable, callback, user_data);
+        g_task_set_source_tag (task, soup_session_preconnect_async);
         g_task_set_priority (task, io_priority);
         g_task_set_task_data (task, item, (GDestroyNotify)soup_message_queue_item_unref);
 

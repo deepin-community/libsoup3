@@ -1,3 +1,73 @@
+libsoup3 (3.4.3-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 15 Sep 2023 14:09:13 -0400
+
+libsoup3 (3.4.2-4) unstable; urgency=medium
+
+  * Revert "d/rules, d/meson/no-exe-wrapper.ini: Work around FTBFS on mips64el":
+    The underlying issue was fixed in meson 1.2.1
+  * Have -dev package depend on libsysprof-capture-4-dev instead of
+    libsysprof-4-dev
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 10 Aug 2023 09:55:02 -0400
+
+libsoup3 (3.4.2-3) unstable; urgency=medium
+
+  * d/rules, d/meson/no-exe-wrapper.ini: Work around FTBFS on mips64el
+    Mitigates: #1041499
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 04 Aug 2023 11:37:09 -0400
+
+libsoup3 (3.4.2-2) unstable; urgency=medium
+
+  * Release to unstable
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sun, 23 Jul 2023 15:55:23 -0400
+
+libsoup3 (3.4.2-1) experimental; urgency=medium
+
+  * New upstream release
+  * Update lintian override info format
+  * Update standards version to 4.6.2, no changes needed
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sun, 07 May 2023 10:46:02 -0400
+
+libsoup3 (3.4.1-1) experimental; urgency=medium
+
+  * New upstream release
+  * Drop patch applied in new release
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Fri, 21 Apr 2023 10:56:33 +0200
+
+libsoup3 (3.4.0-1) experimental; urgency=medium
+
+  * New upstream release
+  * Cherry-pick fix for build on various architectures
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Sun, 19 Mar 2023 18:12:58 -0400
+
+libsoup3 (3.3.1-1) experimental; urgency=medium
+
+  * New upstream release
+  * debian/libsoup-3.0-0.symbols: Add new symbols
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Tue, 14 Feb 2023 11:35:19 -0500
+
+libsoup3 (3.2.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * Drop cherry-picked 32-bit patches: applied in new release
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Wed, 30 Nov 2022 15:11:19 -0500
+
+libsoup3 (3.2.1-2) unstable; urgency=medium
+
+  * Cherry-pick patches to fix 32-bit build
+
+ -- Jeremy Bicha <jbicha@ubuntu.com>  Fri, 21 Oct 2022 14:09:33 -0400
+
 libsoup3 (3.2.1-1) unstable; urgency=medium
 
   * New upstream release (LP: #1992503)

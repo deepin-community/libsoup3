@@ -22,6 +22,7 @@ static gboolean
 timeout_finish_message (gpointer msg)
 {
 	soup_server_message_unpause (msg);
+        g_object_unref (msg);
 	return FALSE;
 }
 
@@ -68,7 +69,7 @@ server_callback (SoupServer        *server,
                 GSource *timeout;
 		soup_server_message_pause (msg);
 		timeout = soup_add_timeout (g_main_context_get_thread_default (),
-                                            1000, timeout_finish_message, msg);
+                                            1000, timeout_finish_message, g_object_ref (msg));
                 g_source_unref (timeout);
 	}
 
@@ -377,9 +378,6 @@ do_msg_reuse_test (void)
         g_clear_error (&error);
         g_object_unref (stream);
 
-        while (g_main_context_pending (NULL))
-                g_main_context_iteration (NULL, FALSE);
-
         ensure_no_signal_handlers (msg, signal_ids, n_signal_ids);
 
 	soup_test_session_abort_unref (session);
@@ -432,6 +430,14 @@ ea_message_starting (SoupMessage  *msg,
 }
 
 static void
+ea_message_queued (SoupSession  *session,
+                   SoupMessage  *msg,
+                   GCancellable *cancellable)
+{
+        g_cancellable_cancel (cancellable);
+}
+
+static void
 do_early_abort_test (void)
 {
 	SoupSession *session;
@@ -453,7 +459,6 @@ do_early_abort_test (void)
 				 (GAsyncReadyCallback)ea_msg_completed_one,
 				 loop);
 	g_object_unref (msg);
-	g_main_context_iteration (context, FALSE);
 
 	soup_session_abort (session);
 	while (g_main_context_pending (context))
@@ -473,10 +478,6 @@ do_early_abort_test (void)
 	g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 	g_clear_error (&error);
 	g_object_unref (msg);
-
-	while (g_main_context_pending (context))
-		g_main_context_iteration (context, FALSE);
-
 	soup_test_session_abort_unref (session);
 
 	g_test_bug ("668098");
@@ -494,11 +495,23 @@ do_early_abort_test (void)
 	g_clear_error (&error);
 	g_object_unref (cancellable);
 	g_object_unref (msg);
-
-	while (g_main_context_pending (context))
-		g_main_context_iteration (context, FALSE);
-
 	soup_test_session_abort_unref (session);
+
+        session = soup_test_session_new (NULL);
+        msg = soup_message_new_from_uri ("GET", base_uri);
+        cancellable = g_cancellable_new ();
+
+        g_signal_connect (session, "request-queued",
+                          G_CALLBACK (ea_message_queued), cancellable);
+        g_assert_null (soup_test_session_async_send (session, msg, cancellable, &error));
+        debug_printf (2, "  Message 4 completed\n");
+
+        g_assert_cmpuint (soup_message_get_connection_id (msg), ==, 0);
+        g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+        g_clear_error (&error);
+        g_object_unref (cancellable);
+        g_object_unref (msg);
+        soup_test_session_abort_unref (session);
 }
 
 static void
@@ -696,9 +709,6 @@ do_one_cancel_after_send_request_test (SoupSession *session,
                 g_assert_cmpstr (g_bytes_get_data (body, NULL), ==, "index");
                 g_bytes_unref (body);
         }
-
-        while (g_main_context_pending (NULL))
-		g_main_context_iteration (NULL, FALSE);
 
         g_object_unref (cancellable);
         g_object_unref (ostream);
@@ -990,9 +1000,6 @@ do_new_request_on_conflict_test (void)
         g_object_unref (msg);
         g_object_unref (data.cancellable);
 
-        while (g_main_context_pending (NULL))
-                g_main_context_iteration (NULL, FALSE);
-
         data.cancellable = g_cancellable_new ();
         data.connections[0] = data.connections[1] = 0;
         data.done = FALSE;
@@ -1013,10 +1020,6 @@ do_new_request_on_conflict_test (void)
 
         g_object_unref (msg);
         g_object_unref (data.cancellable);
-
-        while (g_main_context_pending (NULL))
-                g_main_context_iteration (NULL, FALSE);
-
         g_uri_unref (uri);
         g_bytes_unref (data.body);
         soup_test_session_abort_unref (data.session);

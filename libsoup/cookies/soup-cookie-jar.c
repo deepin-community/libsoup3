@@ -564,6 +564,21 @@ incoming_cookie_is_third_party (SoupCookieJar            *jar,
         return retval;
 }
 
+static gboolean
+string_contains_ctrlcode (const char *s)
+{
+	const char *p;
+
+	p = s;
+	while (*p != '\0') {
+		if (g_ascii_iscntrl (*p) && *p != 0x09)
+			return TRUE;
+		
+		p++;
+	}
+	return FALSE;
+}
+
 /**
  * soup_cookie_jar_add_cookie_full:
  * @jar: a #SoupCookieJar
@@ -618,6 +633,48 @@ soup_cookie_jar_add_cookie_full (SoupCookieJar *jar, SoupCookie *cookie, GUri *u
 		return;
 	}
 
+	/* SameSite=None cookies are rejected unless the Secure attribute is set. */
+	if (soup_cookie_get_same_site_policy (cookie) == SOUP_SAME_SITE_POLICY_NONE && !soup_cookie_get_secure (cookie)) {
+		soup_cookie_free (cookie);
+		return;
+	}
+
+        /* See https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-cookie-prefixes-00 for handling the prefixes,
+         * which has been implemented by Firefox and Chrome. */
+#define MATCH_PREFIX(name, prefix) (!g_ascii_strncasecmp (name, prefix, strlen(prefix)))
+
+	/* Cookies with a "__Secure-" prefix should have Secure attribute set and it must be for a secure host. */
+	if (MATCH_PREFIX (soup_cookie_get_name (cookie), "__Secure-") && !soup_cookie_get_secure (cookie) ) {
+		soup_cookie_free (cookie);
+		return;
+	}
+        /* Path=/ and Secure attributes are required; Domain attribute must not be present.
+         Note that SoupCookie always sets the domain so we ensure its not a subdomain match. */
+	if (MATCH_PREFIX (soup_cookie_get_name (cookie), "__Host-")) {
+		if (!soup_cookie_get_secure (cookie) ||
+		    strcmp (soup_cookie_get_path (cookie), "/") != 0 ||
+                    soup_cookie_get_domain (cookie)[0] == '.') {
+			soup_cookie_free (cookie);
+			return;
+		}
+	}
+
+	/* Cookies should not take control characters %x00-1F / %x7F (defined by RFC 5234) in names or values,
+	 * with the exception of %x09 (the tab character).
+	 */    
+	const char *name, *value;
+	name = soup_cookie_get_name (cookie);
+	value = soup_cookie_get_value (cookie);
+	if (string_contains_ctrlcode (name) || string_contains_ctrlcode (value)) {
+		soup_cookie_free (cookie);
+		return;
+	}
+	
+	if (strlen(name) > 4096 || strlen(value) > 4096) {
+		soup_cookie_free (cookie);
+		return;
+	}
+	
         g_mutex_lock (&priv->mutex);
 
 	old_cookies = g_hash_table_lookup (priv->domains, soup_cookie_get_domain (cookie));

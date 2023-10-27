@@ -56,6 +56,7 @@ struct _SoupCookie {
 	GDateTime *expires;
 	gboolean   secure;
 	gboolean   http_only;
+	SoupSameSitePolicy same_site_policy;
 };
 
 G_DEFINE_BOXED_TYPE (SoupCookie, soup_cookie, soup_cookie_copy, soup_cookie_free)
@@ -81,7 +82,7 @@ soup_cookie_copy (SoupCookie *cookie)
 		copy->expires = g_date_time_ref (cookie->expires);
 	copy->secure = cookie->secure;
 	copy->http_only = cookie->http_only;
-	soup_cookie_set_same_site_policy (copy, soup_cookie_get_same_site_policy (cookie));
+	copy->same_site_policy = cookie->same_site_policy;
 
 	return copy;
 }
@@ -107,10 +108,16 @@ soup_cookie_domain_matches (SoupCookie *cookie, const char *host)
 	return soup_host_matches_host (cookie->domain, host);
 }
 
+static inline gboolean
+is_white_space (char c)
+{
+	return (c == ' ' || c == '\t');
+}
+
 static inline const char *
 skip_lws (const char *s)
 {
-	while (g_ascii_isspace (*s))
+	while (is_white_space (*s))
 		s++;
 	return s;
 }
@@ -118,13 +125,13 @@ skip_lws (const char *s)
 static inline const char *
 unskip_lws (const char *s, const char *start)
 {
-	while (s > start && g_ascii_isspace (*(s - 1)))
+	while (s > start && is_white_space (*(s - 1)))
 		s--;
 	return s;
 }
 
-#define is_attr_ender(ch) ((ch) < ' ' || (ch) == ';' || (ch) == ',' || (ch) == '=')
-#define is_value_ender(ch) ((ch) < ' ' || (ch) == ';')
+#define is_attr_ender(ch) ((ch) == '\0' || (ch) == ';' || (ch) == ',' || (ch) == '=')
+#define is_value_ender(ch) ((ch) == '\0' || (ch) == ';')
 
 static char *
 parse_value (const char **val_p, gboolean copy)
@@ -169,6 +176,7 @@ parse_one_cookie (const char *header, GUri *origin)
 	SoupCookie *cookie;
 
 	cookie = g_slice_new0 (SoupCookie);
+	soup_cookie_set_same_site_policy (cookie, SOUP_SAME_SITE_POLICY_LAX);
 
 	/* Parse the NAME */
 	start = skip_lws (header);
@@ -232,15 +240,15 @@ parse_one_cookie (const char *header, GUri *origin)
 		} else if (MATCH_NAME ("samesite")) {
 			if (has_value) {
 				char *policy = parse_value (&p, TRUE);
-				if (g_ascii_strcasecmp (policy, "Lax") == 0)
-					soup_cookie_set_same_site_policy (cookie, SOUP_SAME_SITE_POLICY_LAX);
+				if (g_ascii_strcasecmp (policy, "None") == 0)
+					soup_cookie_set_same_site_policy (cookie, SOUP_SAME_SITE_POLICY_NONE);
 				else if (g_ascii_strcasecmp (policy, "Strict") == 0)
 					soup_cookie_set_same_site_policy (cookie, SOUP_SAME_SITE_POLICY_STRICT);
-				/* There is an explicit "None" value which is the default. */
+				/* There is an explicit "Lax" value which is the default */
 				g_free (policy);
 			}
 			/* Note that earlier versions of the same-site RFC treated invalid values as strict but
-			   the latest revision simply ignores them. */
+			   the latest revision assigns invalid SameSite values to Lax. */
 		} else {
 			/* Ignore unknown attributes, but we still have
 			 * to skip over the value.
@@ -327,6 +335,7 @@ cookie_new_internal (const char *name, const char *value,
 	cookie->domain = g_strdup (domain);
 	cookie->path = g_strdup (path);
 	soup_cookie_set_max_age (cookie, max_age);
+	cookie->same_site_policy = SOUP_SAME_SITE_POLICY_LAX;
 
 	return cookie;
 }
@@ -357,6 +366,9 @@ cookie_new_internal (const char *name, const char *value,
  * multiples thereof) to calculate this value. (If you really care
  * about setting the exact time that the cookie will expire, use
  * [method@Cookie.set_expires].)
+ *
+ * As of version 3.4.0 the default value of a cookie's same-site-policy
+ * is %SOUP_SAME_SITE_POLICY_LAX.
  *
  * Returns: a new #SoupCookie.
  **/
@@ -395,6 +407,9 @@ soup_cookie_new (const char *name, const char *value,
  * valid state for a #SoupCookie, and you will need to fill in some
  * appropriate string for the domain if you want to actually make use
  * of the cookie.
+ *
+ * As of version 3.4.0 the default value of a cookie's same-site-policy
+ * is %SOUP_SAME_SITE_POLICY_LAX.
  *
  * Returns: (nullable): a new #SoupCookie, or %NULL if it could
  *   not be parsed, or contained an illegal "domain" attribute for a
@@ -741,10 +756,6 @@ serialize_cookie (SoupCookie *cookie, GString *header, gboolean set_cookie)
 		g_string_append (header, "; HttpOnly");
 }
 
-static GQuark soup_same_site_policy_quark (void);
-G_DEFINE_QUARK (soup-same-site-policy, soup_same_site_policy)
-#define SAME_SITE_POLICY_QUARK (soup_same_site_policy_quark())
-
 /**
  * soup_cookie_set_same_site_policy:
  * @cookie: a #SoupCookie
@@ -762,7 +773,7 @@ soup_cookie_set_same_site_policy (SoupCookie         *cookie,
 	case SOUP_SAME_SITE_POLICY_NONE:
 	case SOUP_SAME_SITE_POLICY_STRICT:
 	case SOUP_SAME_SITE_POLICY_LAX:
-		g_dataset_id_set_data (cookie, SAME_SITE_POLICY_QUARK, GUINT_TO_POINTER (policy));
+                cookie->same_site_policy = policy;
 		break;
 	default:
 		g_return_if_reached ();
@@ -780,7 +791,7 @@ soup_cookie_set_same_site_policy (SoupCookie         *cookie,
 SoupSameSitePolicy
 soup_cookie_get_same_site_policy (SoupCookie *cookie)
 {
-	return GPOINTER_TO_UINT (g_dataset_id_get_data (cookie, SAME_SITE_POLICY_QUARK));
+        return cookie->same_site_policy;
 }
 
 /**
@@ -1080,5 +1091,5 @@ soup_cookie_equal (SoupCookie *cookie1, SoupCookie *cookie2)
 
 	return (!strcmp (cookie1->name, cookie2->name) &&
 		!strcmp (cookie1->value, cookie2->value) &&
-		!strcmp (cookie1->path, cookie2->path));
+		!g_strcmp0 (cookie1->path, cookie2->path));
 }
