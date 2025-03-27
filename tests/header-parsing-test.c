@@ -6,6 +6,15 @@ typedef struct {
 	const char *name, *value;
 } Header;
 
+/* These are not C strings to ensure going one byte over is not safe. */
+static char unterminated_http_version[] = {
+        'G','E','T',' ','/',' ','H','T','T','P','/','1', '0', '0', '.'
+};
+
+static char only_newlines[] = {
+        '\n', '\n', '\n', '\n'
+};
+
 static struct RequestTest {
 	const char *description;
 	const char *bugref;
@@ -358,24 +367,6 @@ static struct RequestTest {
 	  }
 	},
 
-	{ "NUL in header name", "760832",
-	  "GET / HTTP/1.1\r\nHost\x00: example.com\r\n", 36,
-	  SOUP_STATUS_OK,
-	  "GET", "/", SOUP_HTTP_1_1,
-	  { { "Host", "example.com" },
-	    { NULL }
-	  }
-	},
-
-	{ "NUL in header value", "760832",
-	  "GET / HTTP/1.1\r\nHost: example\x00" "com\r\n", 35,
-	  SOUP_STATUS_OK,
-	  "GET", "/", SOUP_HTTP_1_1,
-	  { { "Host", "examplecom" },
-	    { NULL }
-	  }
-	},
-
 	/************************/
 	/*** INVALID REQUESTS ***/
 	/************************/
@@ -398,6 +389,13 @@ static struct RequestTest {
 	  "GET / HTTP/2000.0\r\n", -1,
 	  SOUP_STATUS_HTTP_VERSION_NOT_SUPPORTED,
 	  NULL, NULL, -1,
+	  { { NULL } }
+	},
+
+	{ "Long HTTP version terminating at missing minor version", "https://gitlab.gnome.org/GNOME/libsoup/-/issues/404",
+	  unterminated_http_version, sizeof (unterminated_http_version),
+	  SOUP_STATUS_BAD_REQUEST,
+           NULL, NULL, -1,
 	  { { NULL } }
 	},
 
@@ -447,6 +445,28 @@ static struct RequestTest {
 	  "GET / HTTP/1.1\r\nHost: example.com\r\nExpect: the-impossible\r\n", -1,
 	  SOUP_STATUS_EXPECTATION_FAILED,
 	  NULL, NULL, -1,
+	  { { NULL } }
+	},
+
+	// https://gitlab.gnome.org/GNOME/libsoup/-/issues/377
+	{ "NUL in header name", NULL,
+	  "GET / HTTP/1.1\r\nHost\x00: example.com\r\n", 36,
+	  SOUP_STATUS_BAD_REQUEST,
+	  NULL, NULL, -1,
+	  { { NULL } }
+	},
+
+	{ "NUL in header value", NULL,
+	  "HTTP/1.1 200 OK\r\nFoo: b\x00" "ar\r\n", 28,
+	  SOUP_STATUS_BAD_REQUEST,
+           NULL, NULL, -1,
+	  { { NULL } }
+	},
+
+	{ "Only newlines", NULL,
+	  only_newlines, sizeof (only_newlines),
+	  SOUP_STATUS_BAD_REQUEST,
+           NULL, NULL, -1,
 	  { { NULL } }
 	}
 };
@@ -620,22 +640,6 @@ static struct ResponseTest {
 	    { NULL } }
 	},
 
-	{ "NUL in header name", "760832",
-	  "HTTP/1.1 200 OK\r\nF\x00oo: bar\r\n", 28,
-	  SOUP_HTTP_1_1, SOUP_STATUS_OK, "OK",
-	  { { "Foo", "bar" },
-	    { NULL }
-	  }
-	},
-
-	{ "NUL in header value", "760832",
-	  "HTTP/1.1 200 OK\r\nFoo: b\x00" "ar\r\n", 28,
-	  SOUP_HTTP_1_1, SOUP_STATUS_OK, "OK",
-	  { { "Foo", "bar" },
-	    { NULL }
-	  }
-	},
-
 	/********************************/
 	/*** VALID CONTINUE RESPONSES ***/
 	/********************************/
@@ -768,6 +772,19 @@ static struct ResponseTest {
 	  { { NULL }
 	  }
 	},
+
+	// https://gitlab.gnome.org/GNOME/libsoup/-/issues/377
+	{ "NUL in header name", NULL,
+	  "HTTP/1.1 200 OK\r\nF\x00oo: bar\r\n", 28,
+	  -1, 0, NULL,
+	  { { NULL } }
+	},
+
+	{ "NUL in header value", "760832",
+	  "HTTP/1.1 200 OK\r\nFoo: b\x00" "ar\r\n", 28,
+	  -1, 0, NULL,
+	  { { NULL } }
+	},
 };
 static const int num_resptests = G_N_ELEMENTS (resptests);
 
@@ -831,6 +848,17 @@ static struct ParamListTest {
 	    { "filename", "t\xC3\xA9st.txt" },
 	  },
 	},
+
+        /* This tests invalid UTF-8 data which *should* never be passed here but it was designed to be robust against it. */
+        { TRUE,
+              "invalid*=\x69\x27\x27\x93\x93\x93\x93\xff\x61\x61\x61\x61\x61\x61\x61\x62\x63\x64\x65\x0a; filename*=iso-8859-1''\x69\x27\x27\x93\x93\x93\x93\xff\x61\x61\x61\x61\x61\x61\x61\x62\x63\x64\x65\x0a; foo",
+              {
+                    { "filename", "i''\302\223\302\223\302\223\302\223\303\277aaaaaaabcde" },
+                    { "invalid", "\302\223\302\223\302\223\302\223\303\277aaaaaaabcde" },
+                    { "foo", NULL },
+
+                },
+        }
 };
 static const int num_paramlisttests = G_N_ELEMENTS (paramlisttests);
 
@@ -1034,6 +1062,7 @@ do_param_list_tests (void)
 #define RFC5987_TEST_HEADER_FALLBACK "attachment; filename*=Unknown''t%FF%FF%FFst.txt; filename=\"test.txt\""
 #define RFC5987_TEST_HEADER_NO_TYPE  "filename=\"test.txt\""
 #define RFC5987_TEST_HEADER_NO_TYPE_2  "filename=\"test.txt\"; foo=bar"
+#define RFC5987_TEST_HEADER_EMPTY_FILENAME ";filename"
 
 static void
 do_content_disposition_tests (void)
@@ -1132,6 +1161,20 @@ do_content_disposition_tests (void)
 	g_assert_cmpstr (filename, ==, RFC5987_TEST_FALLBACK_FILENAME);
         parameter2 = g_hash_table_lookup (params, "foo");
         g_assert_cmpstr (parameter2, ==, "bar");
+	g_hash_table_destroy (params);
+
+        /* Empty filename */
+        soup_message_headers_clear (hdrs);
+        soup_message_headers_append (hdrs, "Content-Disposition",
+				     RFC5987_TEST_HEADER_EMPTY_FILENAME);
+	if (!soup_message_headers_get_content_disposition (hdrs,
+							   &disposition,
+							   &params)) {
+		soup_test_assert (FALSE, "empty filename decoding FAILED");
+		return;
+	}
+        g_free (disposition);
+        g_assert_false (g_hash_table_contains (params, "filename"));
 	g_hash_table_destroy (params);
 
 	soup_message_headers_unref (hdrs);

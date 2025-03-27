@@ -1,3 +1,154 @@
+libsoup3 (3.6.5-1) unstable; urgency=high
+
+  * New upstream release
+  * libsoup-3.0-dev: Add Depends: libkrb5-dev
+  * Remove libsoup.gnome.org patch: applied in new release
+  * Update Homepage
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 21 Mar 2025 17:04:16 -0400
+
+libsoup3 (3.6.4-3) unstable; urgency=medium
+
+  * Team upload
+  * d/p/Replace-remaining-references-to-libsoup.org-with-libsoup..patch:
+    Add proposed patch to replace expired upstream domain name with
+    libsoup.gnome.org
+
+ -- Simon McVittie <smcv@debian.org>  Wed, 19 Mar 2025 14:13:56 +0000
+
+libsoup3 (3.6.4-2) unstable; urgency=medium
+
+  [ Aurelien Jarno ]
+  * Increase build test timeout, for riscv64 (Closes: #1093564)
+
+  [ Jeremy Bícha ]
+  * Run wrap-and-sort
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 22 Jan 2025 13:23:32 -0500
+
+libsoup3 (3.6.4-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 16 Jan 2025 17:58:00 -0500
+
+libsoup3 (3.6.1-1) unstable; urgency=medium
+
+  * New upstream release
+  * Remove 6 patches applies in new release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 25 Nov 2024 09:06:51 -0500
+
+libsoup3 (3.6.0-4) unstable; urgency=medium
+
+  * d/patches: Add bug fixes from upstream
+    - d/p/server-Add-note-about-recommended-usage.patch:
+      Document the level of security support for the server side.
+      Upstream has clarified the documentation to state that SoupServer
+      is not intended to be exposed to untrusted clients.
+      (Related to CVE-2024-52531, CVE-2024-52532)
+    - d/p/headers-Be-more-robust-against-invalid-input-when-parsing.patch:
+      Fix a buffer overrun if asked to parse non-UTF-8 headers. It is
+      believed that this cannot happen on the client side, but it can
+      happen in SoupServer. (CVE-2024-52531, Closes: #1087417)
+    - d/p/tests-Add-test-for-passing-invalid-UTF-8-to-soup_header_p.patch:
+      Add a test-case for the above
+    - d/p/websocket-process-the-frame-as-soon-as-we-read-data.patch:
+      Avoid an infinite loop in WebSocket processing
+      (CVE-2024-52532, Closes: #1087416)
+    - d/p/websocket-test-disconnect-error-copy-after-the-test-ends.patch:
+      Fix a test failure after resolving CVE-2024-52532
+  * d/p/websocket-test-Disconnect-error-signal-in-another-place.patch:
+    Add proposed patch to fix another intermittent test failure after
+    resolving CVE-2024-52532
+  * d/control: libsoup-3.0-tests Depends on ca-certificates.
+    Related to #1054962, #1064744
+  * d/libsoup-3.0-doc.links: Register reference manual with devhelp
+  * d/libsoup-3.0-doc.links: Create symlinks in
+    /usr/share/doc/libsoup-3.0-{dev,doc} to make the HTML documentation
+    more discoverable
+
+ -- Simon McVittie <smcv@debian.org>  Wed, 13 Nov 2024 14:50:50 +0000
+
+libsoup3 (3.6.0-3) unstable; urgency=medium
+
+  * Add Build-Depends: ca-certificates for build tests
+    (Closes: #1064744, #1054962)
+  * Update Homepage
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 31 Oct 2024 11:05:08 +0100
+
+libsoup3 (3.6.0-2) unstable; urgency=medium
+
+  [ Helmut Grohne ]
+  * Remove unused python3 & python3-quart dependencies (Closes: #1080044)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sat, 31 Aug 2024 08:30:58 -0400
+
+libsoup3 (3.6.0-1) unstable; urgency=medium
+
+  * New upstream release
+  * Remove 3 patches applied in new release
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 26 Aug 2024 06:57:51 -0400
+
+libsoup3 (3.5.2-1) unstable; urgency=medium
+
+  * New upstream release
+  * debian/libsoup-3.0-0.symbols: Add new symbols
+  * Bump minimum glib
+  * Fix nocheck build
+  * Cherry-pick some additional fixes
+  * Bump Standards Version to 4.7.0
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 09 Aug 2024 18:27:30 -0400
+
+libsoup3 (3.4.4-5) unstable; urgency=medium
+
+  * Don't require libapache2-mod-php on i386 either
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sun, 28 Jan 2024 20:05:48 -0500
+
+libsoup3 (3.4.4-4) unstable; urgency=medium
+
+  * Don't require php on i386: only used by tests
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sun, 28 Jan 2024 08:50:22 -0500
+
+libsoup3 (3.4.4-3) unstable; urgency=medium
+
+  [ Simon McVittie ]
+  * d/rules: Explicitly disable pkcs11_tests if built with nocheck,noinsttest.
+    These require GNUTLS, which is omitted from the build dependencies
+    if built with both of those profiles. Because we're using
+    -Dauto_features=enabled, we need to override that for each feature that
+    is not wanted.
+    Note that both of those profiles need to be activated during
+    bootstrapping: even if we are not going to run the test suite during
+    the build, we need to compile it for the libsoup3.0-tests binary package,
+    unless the noinsttest build profile was specified. (Closes: #1061133)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 19 Jan 2024 09:06:45 -0500
+
+libsoup3 (3.4.4-2) unstable; urgency=medium
+
+  * Team upload
+  * d/control: Stop generating from d/control.in
+  * d/control: Explicitly build-depend on required GIR XML.
+    Helps: #1030223
+  * d/control: Add ${gir:Depends}, ${gir:Provides} to -dev package.
+    Helps: #1030223
+  * Remove version constraints unnecessary since Debian 11
+
+ -- Simon McVittie <smcv@debian.org>  Fri, 17 Nov 2023 13:28:30 +0000
+
+libsoup3 (3.4.4-1) unstable; urgency=medium
+
+  * New upstream release
+    - Fix regression seen in Ubuntu's s390s autopkgtest (LP: #2036444)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 26 Oct 2023 20:24:22 -0400
+
 libsoup3 (3.4.3-1) unstable; urgency=medium
 
   * New upstream release

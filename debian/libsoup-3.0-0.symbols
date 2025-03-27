@@ -9,6 +9,7 @@ libsoup-3.0.so.0 libsoup-3.0-0 #MINVER#
  _SOUP_METHOD_MKCOL@Base 2.4.0
  _SOUP_METHOD_MOVE@Base 2.4.0
  _SOUP_METHOD_OPTIONS@Base 2.4.0
+ _SOUP_METHOD_PATCH@Base 3.5.2
  _SOUP_METHOD_POST@Base 2.4.0
  _SOUP_METHOD_PROPFIND@Base 2.4.0
  _SOUP_METHOD_PROPPATCH@Base 2.4.0
@@ -443,6 +444,7 @@ libsoup-3.0.so.0 libsoup-3.0-0 #MINVER#
  soup_websocket_connection_get_extensions@Base 2.67.91
  soup_websocket_connection_get_io_stream@Base 2.49.91.1
  soup_websocket_connection_get_keepalive_interval@Base 2.58.2
+ soup_websocket_connection_get_keepalive_pong_timeout@Base 3.5.2
  soup_websocket_connection_get_max_incoming_payload_size@Base 2.56.0
  soup_websocket_connection_get_origin@Base 2.49.91.1
  soup_websocket_connection_get_protocol@Base 2.49.91.1
@@ -454,6 +456,7 @@ libsoup-3.0.so.0 libsoup-3.0-0 #MINVER#
  soup_websocket_connection_send_message@Base 2.67.3
  soup_websocket_connection_send_text@Base 2.49.91.1
  soup_websocket_connection_set_keepalive_interval@Base 2.58.2
+ soup_websocket_connection_set_keepalive_pong_timeout@Base 3.5.2
  soup_websocket_connection_set_max_incoming_payload_size@Base 2.56.0
  soup_websocket_connection_type_get_type@Base 2.49.91.1
  soup_websocket_data_type_get_type@Base 2.49.91.1

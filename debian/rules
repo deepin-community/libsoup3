@@ -14,6 +14,13 @@ else
 SYSPROF = -Dsysprof=disabled
 endif
 
+# Some features are needed whenever we have build-time *or* installed tests
+ifneq ($(filter nocheck,$(DEB_BUILD_OPTIONS))$(filter %-tests,$(built_binaries)),nocheck)
+test_features = enabled
+else
+test_features = disabled
+endif
+
 %:
 	dh $@
 
@@ -22,13 +29,11 @@ override_dh_auto_configure:
 		-Dauto_features=enabled \
 		-Dautobahn=disabled \
 		-Dinstalled_tests=true \
+		-Dpkcs11_tests=$(test_features) \
 		$(SYSPROF)
 
-# TODO: Reduce the multiplier, and/or extend individual tests' timeouts
-# instead, when we have a better idea of how long they take on various
-# architectures
 override_dh_auto_test-arch:
-	dh_auto_test -- --timeout-multiplier 5
+	dh_auto_test -- --timeout-multiplier 6
 
 # debhelper >= 13.4 makes all of /usr/libexec executable, which is not
 # quite right for installed-tests
@@ -38,3 +43,6 @@ ifneq ($(filter %-tests,$(built_binaries)),)
 	chmod --changes u=rw,og=r debian/*-tests/usr/libexec/installed-tests/libsoup*/*.so
 	chmod --recursive --changes a+rX,u+w,og-w debian/*-tests/usr/libexec/installed-tests
 endif
+
+override_dh_gnome_clean:
+	dh_gnome_clean --no-control

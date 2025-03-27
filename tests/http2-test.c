@@ -679,10 +679,10 @@ do_connections_test (Test *test, gconstpointer data)
         guint complete_count = 0;
         GUri *uri;
 
-        if (g_getenv ("ASAN_OPTIONS")) {
-                g_test_skip ("Flakey on asan GitLab runner");
-                return;
-        }
+#ifdef __SANITIZE_ADDRESS__
+        g_test_skip ("Flakey on asan GitLab runner");
+        return;
+#endif
 
         async_context = g_main_context_ref_thread_default ();
 
@@ -1119,6 +1119,7 @@ static void
 do_one_sniffer_test (SoupSession  *session,
                      const char   *path,
                      gsize         expected_size,
+                     const char   *expected_type,
                      gboolean      should_sniff,
                      GMainContext *async_context)
 {
@@ -1152,7 +1153,7 @@ do_one_sniffer_test (SoupSession  *session,
         if (should_sniff) {
                 soup_test_assert (g_object_get_data (G_OBJECT (msg), "content-sniffed") != NULL,
                                   "content-sniffed did not get emitted");
-                g_assert_cmpstr (sniffed_type, ==, "text/plain");
+                g_assert_cmpstr (sniffed_type, ==, expected_type);
         } else {
                 soup_test_assert (g_object_get_data (G_OBJECT (msg), "content-sniffed") == NULL,
                                   "content-sniffed got emitted without a sniffer");
@@ -1178,9 +1179,11 @@ do_sniffer_async_test (Test *test, gconstpointer data)
         if (should_content_sniff)
                 soup_session_add_feature_by_type (test->session, SOUP_TYPE_CONTENT_SNIFFER);
 
-        do_one_sniffer_test (test->session, "/", 11, should_content_sniff, async_context);
-        do_one_sniffer_test (test->session, "/large", (LARGE_N_CHARS * LARGE_CHARS_REPEAT) + 1, should_content_sniff, async_context);
-        do_one_sniffer_test (test->session, "/no-content", 0, should_content_sniff, async_context);
+        do_one_sniffer_test (test->session, "/", 11, "text/plain", should_content_sniff, async_context);
+        do_one_sniffer_test (test->session, "/large", (LARGE_N_CHARS * LARGE_CHARS_REPEAT) + 1, "text/plain", should_content_sniff, async_context);
+        do_one_sniffer_test (test->session, "/no-content", 0, "text/plain", should_content_sniff, async_context);
+        do_one_sniffer_test (test->session, "/no-content-but-has-content-type", 0, "text/javascript", should_content_sniff, async_context);
+        do_one_sniffer_test (test->session, "/empty-but-has-content-type", 0, "text/javascript", should_content_sniff, async_context);
 
         g_main_context_unref (async_context);
 }
@@ -1193,9 +1196,12 @@ do_sniffer_sync_test (Test *test, gconstpointer data)
         if (should_content_sniff)
                 soup_session_add_feature_by_type (test->session, SOUP_TYPE_CONTENT_SNIFFER);
 
-        do_one_sniffer_test (test->session, "/", 11, should_content_sniff, NULL);
-        do_one_sniffer_test (test->session, "/large", (LARGE_N_CHARS * LARGE_CHARS_REPEAT) + 1, should_content_sniff, NULL);
-        do_one_sniffer_test (test->session, "/no-content", 0, should_content_sniff, NULL);
+        do_one_sniffer_test (test->session, "/", 11, "text/plain", should_content_sniff, NULL);
+        do_one_sniffer_test (test->session, "/large", (LARGE_N_CHARS * LARGE_CHARS_REPEAT) + 1, "text/plain", should_content_sniff, NULL);
+        do_one_sniffer_test (test->session, "/no-content", 0, "text/plain", should_content_sniff, NULL);
+        do_one_sniffer_test (test->session, "/no-content-but-has-content-type", 0, "text/javascript", should_content_sniff, NULL);
+        do_one_sniffer_test (test->session, "/empty-but-has-content-type", 0, "text/javascript", should_content_sniff, NULL);
+
 }
 
 static void
@@ -1271,6 +1277,14 @@ server_handler (SoupServer        *server,
                 }
         } else if (strcmp (path, "/no-content") == 0) {
                 soup_server_message_set_status (msg, SOUP_STATUS_NO_CONTENT, NULL);
+        } else if (strcmp (path, "/no-content-but-has-content-type") == 0) {
+                soup_message_headers_set_content_type (soup_server_message_get_response_headers (msg), "text/javascript", NULL);
+                soup_server_message_set_status (msg, SOUP_STATUS_NO_CONTENT, NULL);
+        } else if (strcmp (path, "/empty-but-has-content-type") == 0) {
+                soup_server_message_set_status (msg, SOUP_STATUS_OK, NULL);
+                soup_server_message_set_response (msg, "text/javascript",
+                                                  SOUP_MEMORY_STATIC,
+                                                  NULL, 0);
         } else if (strcmp (path, "/large") == 0) {
                 int i, j;
                 SoupMessageBody *response_body;
@@ -1449,7 +1463,7 @@ main (int argc, char **argv)
                     setup_session,
                     do_flow_control_large_test,
                     teardown_session);
-        g_test_add ("/http2/flow-control/large/sync", Test, GINT_TO_POINTER (TRUE),
+        g_test_add ("/http2/flow-control/large/sync", Test, GINT_TO_POINTER (FALSE),
                     setup_session,
                     do_flow_control_large_test,
                     teardown_session);

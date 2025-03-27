@@ -13,7 +13,7 @@ Bug: https://gitlab.gnome.org/GNOME/libsoup/issues/120
  1 file changed, 5 insertions(+)
 
 diff --git a/tests/ssl-test.c b/tests/ssl-test.c
-index 1f8fa0f..f5a06e8 100644
+index 75d87cc..221ea9c 100644
 --- a/tests/ssl-test.c
 +++ b/tests/ssl-test.c
 @@ -170,6 +170,11 @@ do_tls_interaction_test (gconstpointer data)

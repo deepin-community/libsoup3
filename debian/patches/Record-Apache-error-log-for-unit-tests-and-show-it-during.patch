@@ -8,10 +8,10 @@ This helps to diagnose problems with the Apache-based tests.
  1 file changed, 10 insertions(+), 1 deletion(-)
 
 diff --git a/tests/test-utils.c b/tests/test-utils.c
-index c2a59da..04423d1 100644
+index d29d117..bf977ed 100644
 --- a/tests/test-utils.c
 +++ b/tests/test-utils.c
-@@ -165,7 +165,7 @@ static gboolean
+@@ -164,7 +164,7 @@ static gboolean
  apache_cmd (const char *cmd)
  {
  	GPtrArray *argv;
@@ -20,7 +20,7 @@ index c2a59da..04423d1 100644
  #ifdef HAVE_APACHE_2_4
  	char *default_runtime_dir;
  #endif
-@@ -184,6 +184,7 @@ apache_cmd (const char *cmd)
+@@ -183,6 +183,7 @@ apache_cmd (const char *cmd)
  	default_runtime_dir = g_strdup_printf ("DefaultRuntimeDir %s", cwd);
  #endif
  	pid_file = g_strdup_printf ("PidFile %s/httpd.pid", cwd);
@@ -28,7 +28,7 @@ index c2a59da..04423d1 100644
  
  	argv = g_ptr_array_new ();
  	g_ptr_array_add (argv, APACHE_HTTPD);
-@@ -196,6 +197,8 @@ apache_cmd (const char *cmd)
+@@ -195,6 +196,8 @@ apache_cmd (const char *cmd)
  	g_ptr_array_add (argv, "-c");
  	g_ptr_array_add (argv, default_runtime_dir);
  #endif
@@ -37,7 +37,7 @@ index c2a59da..04423d1 100644
  	g_ptr_array_add (argv, "-c");
  	g_ptr_array_add (argv, pid_file);
  
-@@ -222,6 +225,7 @@ apache_cmd (const char *cmd)
+@@ -221,6 +224,7 @@ apache_cmd (const char *cmd)
  
  	g_free (cwd);
  	g_free (pid_file);
@@ -45,7 +45,7 @@ index c2a59da..04423d1 100644
  #ifdef HAVE_APACHE_2_4
  	g_free (default_runtime_dir);
  #endif
-@@ -269,6 +273,11 @@ apache_cleanup (void)
+@@ -268,6 +272,11 @@ apache_cleanup (void)
  			g_usleep (100);
  	}
  

@@ -31,7 +31,7 @@
  **/
 
 #define XDIGIT(c) ((c) <= '9' ? (c) - '0' : ((c) & 0x4F) - 'A' + 10)
-#define HEXCHAR(s) ((XDIGIT (s[1]) << 4) + XDIGIT (s[2]))
+#define HEXCHAR(s) ((XDIGIT ((s)[1]) << 4) + XDIGIT ((s)[2]))
 
 static gboolean
 form_decode (char *part)
@@ -99,7 +99,7 @@ soup_form_decode (const char *encoded_form)
 
 /**
  * soup_form_decode_multipart:
- * @multipart: a #SoupMultipart
+ * @multipart: (transfer full): a #SoupMultipart
  * @file_control_name: (nullable): the name of the HTML file upload control
  * @filename: (out) (optional): return location for the name of the uploaded file
  * @content_type: (out) (optional): return location for the MIME type of the uploaded file

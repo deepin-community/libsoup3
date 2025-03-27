@@ -243,8 +243,13 @@ sniff_mp4 (SoupContentSniffer *sniffer, GBytes *buffer)
 	gsize resource_length;
 	const char *resource = g_bytes_get_data (buffer, &resource_length);
 	resource_length = MIN (512, resource_length);
-	guint32 box_size = *((guint32*)resource);
+	guint32 box_size;
 	guint i;
+
+        if (resource_length < sizeof (guint32))
+                return FALSE;
+
+	box_size = *((guint32*)resource);
 
 #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 	box_size = ((box_size >> 24) |
@@ -524,7 +529,7 @@ sniff_unknown (SoupContentSniffer *sniffer, GBytes *buffer,
 			guint index_pattern = 0;
 			gboolean skip_row = FALSE;
 
-			while ((index_stream < resource_length) &&
+			while ((index_stream < resource_length - 1) &&
 			       (index_pattern <= type_row->pattern_length)) {
 				/* Skip insignificant white space ("WS" in the spec) */
 				if (type_row->pattern[index_pattern] == ' ') {
@@ -633,15 +638,18 @@ sniff_text_or_binary (SoupContentSniffer *sniffer, GBytes *buffer)
 }
 
 static gboolean
-skip_insignificant_space (const char *resource, int *pos, int resource_length)
+skip_insignificant_space (const char *resource, gsize *pos, gsize resource_length)
 {
+        if (*pos >= resource_length)
+	        return TRUE;
+
 	while ((resource[*pos] == '\x09') ||
 	       (resource[*pos] == '\x20') ||
 	       (resource[*pos] == '\x0A') ||
 	       (resource[*pos] == '\x0D')) {
 		*pos = *pos + 1;
 
-		if (*pos > resource_length)
+		if (*pos >= resource_length)
 			return TRUE;
 	}
 
@@ -654,7 +662,7 @@ sniff_feed_or_html (SoupContentSniffer *sniffer, GBytes *buffer)
 	gsize resource_length;
 	const char *resource = g_bytes_get_data (buffer, &resource_length);
 	resource_length = MIN (512, resource_length);
-	int pos = 0;
+	gsize pos = 0;
 
 	if (resource_length < 3)
 		goto text_html;
@@ -664,9 +672,6 @@ sniff_feed_or_html (SoupContentSniffer *sniffer, GBytes *buffer)
 		pos = 3;
 
  look_for_tag:
-	if (pos > resource_length)
-		goto text_html;
-
 	if (skip_insignificant_space (resource, &pos, resource_length))
 		goto text_html;
 
@@ -704,7 +709,7 @@ sniff_feed_or_html (SoupContentSniffer *sniffer, GBytes *buffer)
 		do {
 			pos++;
 
-			if (pos > resource_length)
+			if ((pos + 1) > resource_length)
 				goto text_html;
 		} while (resource[pos] != '>');
 

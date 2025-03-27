@@ -8,10 +8,10 @@ https://bugs.debian.org/1018709
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/tests/meson.build b/tests/meson.build
-index 9bf88be..50ea66b 100644
+index 5aee70b..83ce022 100644
 --- a/tests/meson.build
 +++ b/tests/meson.build
-@@ -79,7 +79,8 @@ tests = [
+@@ -88,7 +88,8 @@ tests = [
    {'name': 'forms'},
    {'name': 'header-parsing'},
    {'name': 'http2'},
@@ -21,7 +21,7 @@ index 9bf88be..50ea66b 100644
    {'name': 'hsts'},
    {'name': 'hsts-db'},
    {'name': 'logger'},
-@@ -212,7 +213,7 @@ foreach test: tests
+@@ -224,7 +225,7 @@ foreach test: tests
      env : env,
      is_parallel : test.get('parallel', true),
      depends : test.get('depends', []),
