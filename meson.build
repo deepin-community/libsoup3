@@ -1,5 +1,5 @@
 project('libsoup', 'c',
-        version: '3.4.3',
+        version: '3.6.5',
         meson_version : '>= 0.54',
         license : 'LGPL-2.0-or-later',
         default_options : [
@@ -18,7 +18,7 @@ soup_version = meson.project_version()
 # - If binary compatibility has been broken (eg removed or changed interfaces)
 #   change to [C+1, 0, 0]
 # - If the interface is the same as the previous version, use [C, R+1, A].
-soup_version_info = [7, 0, 7]
+soup_version_info = [7, 4, 7]
 
 # Turn [C, R, A] into an actual usable *soversion*.
 soup_soversion_major = soup_version_info[0] - soup_version_info[2] # Current-Age
@@ -98,10 +98,10 @@ endif
 
 add_project_arguments(common_flags, language : 'c')
 
-glib_required_version = '>= 2.69.1'
+glib_required_version = '>= 2.70.0'
 glib_dep = dependency('glib-2.0', version : glib_required_version,
                        fallback: ['glib', 'libglib_dep'])
-gmodule_dep = dependency('gmodule-2.0', version : glib_required_version,
+gmodule_dep = dependency('gmodule-no-export-2.0', version : glib_required_version,
                          fallback: ['glib', 'libgmodule_dep'])
 gobject_dep = dependency('gobject-2.0', version : glib_required_version,
                        fallback: ['glib', 'libgobject_dep'])
@@ -112,8 +112,11 @@ glib_deps = [glib_dep, gmodule_dep, gobject_dep, gio_dep]
 
 cdata = configuration_data()
 
+cdata.set('GLIB_VERSION_MAX_ALLOWED', 'GLIB_VERSION_2_70')
+cdata.set('GLIB_VERSION_MIN_REQUIRED', 'GLIB_VERSION_2_70')
+
 libnghttp2_dep = dependency('libnghttp2')
-if cc.has_function('nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation', prefix : '#include <nghttp2/nghttp2.h>', dependencies : libnghttp2_dep)
+if (libnghttp2_dep.version() == 'unknown' and (libnghttp2_dep.type_name() == 'internal' or cc.has_function('nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation', prefix : '#include <nghttp2/nghttp2.h>', dependencies : libnghttp2_dep))) or libnghttp2_dep.version().version_compare('>=1.50')
     cdata.set('HAVE_NGHTTP2_OPTION_SET_NO_RFC9113_LEADING_AND_TRAILING_WS_VALIDATION', '1')
 endif
 
@@ -300,7 +303,6 @@ endif
 # GSSAPI support #
 ##################
 gssapi_opt = get_option('gssapi')
-enable_gssapi = false
 if cc.get_id() == 'msvc'
   if host_machine.cpu_family() == 'x86'
     gssapi_lib_type = '32'
@@ -310,30 +312,11 @@ if cc.get_id() == 'msvc'
   gssapi_dep = cc.find_library('gssapi' + gssapi_lib_type,
     has_headers: 'gssapi/gssapi.h',
     required: gssapi_opt)
-  if gssapi_dep.found()
-      enable_gssapi = true
-  endif
 else
-  krb5_config_path = get_option('krb5_config')
-  if not meson.is_cross_build() and krb5_config_path == ''
-    krb5_config_path = 'krb5-config'
-  endif
-  krb5_config = find_program(krb5_config_path, required : gssapi_opt)
-  if krb5_config.found()
-    libs_output = run_command(krb5_config, '--libs', 'gssapi', check: gssapi_opt.enabled())
-    cflags_output = run_command(krb5_config, '--cflags', 'gssapi', check: gssapi_opt.enabled())
-    if libs_output.returncode() == 0 and cflags_output.returncode() == 0
-      enable_gssapi = true
-      gssapi_dep = declare_dependency(
-        link_args: libs_output.stdout().split(),
-        compile_args: cflags_output.stdout().split())
-    endif
-  else
-    gssapi_dep = dependency('', required: false)
-  endif
+  gssapi_dep = dependency('krb5-gssapi', required: gssapi_opt)
 endif
 
-if enable_gssapi
+if gssapi_dep.found()
   add_project_arguments('-DLIBSOUP_HAVE_GSSAPI=1', language : 'c')
 endif
 
@@ -404,7 +387,7 @@ summary({
 )
 
 summary({
-    'GSSAPI' : enable_gssapi,
+    'GSSAPI' : gssapi_dep.found(),
     'NTLM' : ntlm_auth.found(),
     'Brotli' : brotlidec_dep.found(),
     'Translations' : xgettext.found(),

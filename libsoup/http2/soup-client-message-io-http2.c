@@ -119,6 +119,52 @@ typedef struct {
 static void soup_client_message_io_http2_finished (SoupClientMessageIO *iface, SoupMessage *msg);
 static ssize_t on_data_source_read_callback (nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length, uint32_t *data_flags, nghttp2_data_source *source, void *user_data);
 
+#define ANSI_CODE_RESET      "\033[00m"
+#define ANSI_CODE_BOLD       "\033[1m"
+#define ANSI_CODE_DARK       "\033[2m"
+#define ANSI_CODE_UNDERLINE  "\033[4m"
+#define ANSI_CODE_BLINK      "\033[5m"
+#define ANSI_CODE_REVERSE    "\033[7m"
+#define ANSI_CODE_CONCEALED  "\033[8m"
+#define ANSI_CODE_GRAY       "\033[30m"
+#define ANSI_CODE_RED        "\033[31m"
+#define ANSI_CODE_GREEN      "\033[32m"
+#define ANSI_CODE_YELLOW     "\033[33m"
+#define ANSI_CODE_BLUE       "\033[34m"
+#define ANSI_CODE_MAGENTA    "\033[35m"
+#define ANSI_CODE_CYAN       "\033[36m"
+#define ANSI_CODE_WHITE      "\033[37m"
+#define ANSI_CODE_BG_GRAY    "\033[40m"
+#define ANSI_CODE_BG_RED     "\033[41m"
+#define ANSI_CODE_BG_GREEN   "\033[42m"
+#define ANSI_CODE_BG_YELLOW  "\033[43m"
+#define ANSI_CODE_BG_BLUE    "\033[44m"
+#define ANSI_CODE_BG_MAGENTA "\033[45m"
+#define ANSI_CODE_BG_CYAN    "\033[46m"
+#define ANSI_CODE_BG_WHITE   "\033[47m"
+
+static const char *
+id_color (guint32 id)
+{
+        switch (id % 6) {
+            case 0:
+                return ANSI_CODE_RED;
+            case 1:
+                return ANSI_CODE_GREEN;
+            case 2:
+                return ANSI_CODE_YELLOW;
+            case 3:
+                return ANSI_CODE_BLUE;
+            case 4:
+                return ANSI_CODE_MAGENTA;
+            case 5:
+                return ANSI_CODE_CYAN;
+        }
+
+        g_assert_not_reached ();
+        return "";
+}
+
 G_GNUC_PRINTF(3, 0)
 static void
 h2_debug (SoupClientMessageIOHTTP2   *io,
@@ -141,7 +187,7 @@ h2_debug (SoupClientMessageIOHTTP2   *io,
                 stream_id = data->stream_id;
 
         g_assert (io);
-        g_log (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, "[CLIENT] [C%" G_GUINT64_FORMAT "-S%u] [%s] %s", io->connection_id, stream_id, data ? soup_http2_io_state_to_string (data->state) : "-", message);
+        g_log (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, "[CLIENT] [%sC%" G_GUINT64_FORMAT "%s-%sS%u%s] [%s] %s", id_color (io->connection_id), io->connection_id, ANSI_CODE_RESET, id_color (stream_id), stream_id, ANSI_CODE_RESET, data ? soup_http2_io_state_to_string (data->state) : "-", message);
 
         g_free (message);
 }
@@ -375,11 +421,7 @@ io_try_write (SoupClientMessageIOHTTP2 *io,
                         return;
 
                 io->write_idle_source = g_idle_source_new ();
-#if GLIB_CHECK_VERSION(2, 70, 0)
                 g_source_set_static_name (io->write_idle_source, "Soup HTTP/2 write idle source");
-#else
-                g_source_set_name (io->write_idle_source, "Soup HTTP/2 write idle source");
-#endif
                 /* Give write more priority than read */
                 g_source_set_priority (io->write_idle_source, G_PRIORITY_DEFAULT - 1);
                 g_source_set_callback (io->write_idle_source, (GSourceFunc)io_write_idle_cb, io, NULL);
@@ -398,11 +440,7 @@ io_try_write (SoupClientMessageIOHTTP2 *io,
         if (!blocking && g_error_matches (error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK)) {
                 g_clear_error (&error);
                 io->write_source = g_pollable_output_stream_create_source (G_POLLABLE_OUTPUT_STREAM (io->ostream), NULL);
-#if GLIB_CHECK_VERSION(2, 70, 0)
                 g_source_set_static_name (io->write_source, "Soup HTTP/2 write source");
-#else
-                g_source_set_name (io->write_source, "Soup HTTP/2 write source");
-#endif
                 /* Give write more priority than read */
                 g_source_set_priority (io->write_source, G_PRIORITY_DEFAULT - 1);
                 g_source_set_callback (io->write_source, (GSourceFunc)io_write_ready, io, NULL);
@@ -508,6 +546,28 @@ io_read_ready (GObject                  *stream,
 }
 
 static void
+sniff_for_empty_response (SoupMessage *msg)
+{
+        if (soup_message_has_content_sniffer (msg)) {
+                const char *content_type = soup_message_headers_get_content_type (soup_message_get_response_headers (msg), NULL);
+                if (!content_type)
+                     content_type = "text/plain";
+                soup_message_content_sniffed (msg, content_type, NULL);
+        }
+}
+
+static gboolean
+message_has_content_length_zero (SoupMessage *msg)
+{
+        SoupMessageHeaders *headers = soup_message_get_response_headers (msg);
+
+        if (soup_message_headers_get_encoding (headers) != SOUP_ENCODING_CONTENT_LENGTH)
+                return FALSE;
+
+        return soup_message_headers_get_content_length (headers) == 0;
+}
+
+static void
 io_try_sniff_content (SoupHTTP2MessageData *data,
                       gboolean              blocking,
                       GCancellable         *cancellable)
@@ -517,6 +577,13 @@ io_try_sniff_content (SoupHTTP2MessageData *data,
         /* This can re-enter in sync mode */
         if (data->in_io_try_sniff_content)
                 return;
+
+        if (message_has_content_length_zero (data->msg)) {
+                sniff_for_empty_response (data->msg);
+                h2_debug (data->io, data, "[DATA] Sniffed content (Content-Length was 0)");
+                advance_state_from (data, STATE_READ_DATA_START, STATE_READ_DATA);
+                return;
+        }
 
         data->in_io_try_sniff_content = TRUE;
 
@@ -770,8 +837,7 @@ on_frame_recv_callback (nghttp2_session     *session,
                 if (soup_message_get_status (data->msg) == SOUP_STATUS_NO_CONTENT || frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
                         h2_debug (io, data, "Stream done");
                         advance_state_from (data, STATE_READ_HEADERS, STATE_READ_DATA_START);
-                        if (soup_message_has_content_sniffer (data->msg))
-                                soup_message_content_sniffed (data->msg, "text/plain", NULL);
+                        sniff_for_empty_response (data->msg);
                         advance_state_from (data, STATE_READ_DATA_START, STATE_READ_DATA);
                 }
                 break;
@@ -957,15 +1023,14 @@ on_frame_send_callback (nghttp2_session     *session,
 
                         /* Close in idle to ensure all pending io is finished first */
                         source = g_idle_source_new ();
-#if GLIB_CHECK_VERSION(2, 70, 0)
                         g_source_set_static_name (source, "Soup HTTP/2 close source");
-#else
-                        g_source_set_name (source, "Soup HTTP/2 close source");
-#endif
                         g_source_set_callback (source, (GSourceFunc)close_in_idle_cb, io, NULL);
                         g_source_attach (source, g_task_get_context (io->close_task));
                         g_source_unref (source);
                 }
+                break;
+        case NGHTTP2_WINDOW_UPDATE:
+                h2_debug (io, data, "[SEND] [WINDOW_UPDATE] stream_id=%u increment=%d", frame->hd.stream_id, frame->window_update.window_size_increment);
                 break;
         default:
                 h2_debug (io, data, "[SEND] [%s] stream_id=%u", soup_http2_frame_type_to_string (frame->hd.type), frame->hd.stream_id);
@@ -1194,11 +1259,7 @@ on_data_source_read_callback (nghttp2_session     *session,
 
                                 h2_debug (data->io, data, "[SEND_BODY] Polling");
                                 data->data_source_poll = g_pollable_input_stream_create_source (in_stream, data->item->cancellable);
-#if GLIB_CHECK_VERSION(2, 70, 0)
                                 g_source_set_static_name (data->data_source_poll, "Soup HTTP/2 data polling");
-#else
-                                g_source_set_name (data->data_source_poll, "Soup HTTP/2 data polling");
-#endif
                                 g_source_set_callback (data->data_source_poll, (GSourceFunc)on_data_readable, data, NULL);
                                 g_source_set_priority (data->data_source_poll, get_data_io_priority (data));
                                 g_source_attach (data->data_source_poll, g_main_context_get_thread_default ());
@@ -1845,11 +1906,7 @@ soup_client_message_io_http2_set_owner (SoupClientMessageIOHTTP2 *io,
                 return;
 
         io->read_source = g_pollable_input_stream_create_source (G_POLLABLE_INPUT_STREAM (io->istream), NULL);
-#if GLIB_CHECK_VERSION(2, 70, 0)
         g_source_set_static_name (io->read_source, "Soup HTTP/2 read source");
-#else
-        g_source_set_name (io->read_source, "Soup HTTP/2 read source");
-#endif
         g_source_set_priority (io->read_source, G_PRIORITY_DEFAULT);
         g_source_set_callback (io->read_source, (GSourceFunc)io_read_ready, io, NULL);
         g_source_attach (io->read_source, g_main_context_get_thread_default ());

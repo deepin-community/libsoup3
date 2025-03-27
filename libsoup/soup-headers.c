@@ -51,12 +51,13 @@ soup_headers_parse (const char *str, int len, SoupMessageHeaders *dest)
 	 * ignorable trailing whitespace.
 	 */
 
+	/* No '\0's are allowed */
+	if (memchr (str, '\0', len))
+		return FALSE;
+
 	/* Skip over the Request-Line / Status-Line */
 	headers_start = memchr (str, '\n', len);
 	if (!headers_start)
-		return FALSE;
-	/* No '\0's in the Request-Line / Status-Line */
-	if (memchr (str, '\0', headers_start - str))
 		return FALSE;
 
 	/* We work on a copy of the headers, which we can write '\0's
@@ -68,14 +69,6 @@ soup_headers_parse (const char *str, int len, SoupMessageHeaders *dest)
 	memcpy (headers_copy, headers_start, copy_len);
 	headers_copy[copy_len] = '\0';
 	value_end = headers_copy;
-
-	/* There shouldn't be any '\0's in the headers already, but
-	 * this is the web we're talking about.
-	 */
-	while ((p = memchr (headers_copy, '\0', copy_len))) {
-		memmove (p, p + 1, copy_len - (p - headers_copy));
-		copy_len--;
-	}
 
 	while (*(value_end + 1)) {
 		name = value_end + 1;
@@ -193,7 +186,7 @@ soup_headers_parse_request (const char          *str,
 	/* RFC 2616 4.1 "servers SHOULD ignore any empty line(s)
 	 * received where a Request-Line is expected."
 	 */
-	while ((*str == '\r' || *str == '\n') && len > 0) {
+	while (len > 0 && (*str == '\r' || *str == '\n')) {
 		str++;
 		len--;
 	}
@@ -232,7 +225,7 @@ soup_headers_parse_request (const char          *str,
 	    !g_ascii_isdigit (version[5]))
 		return SOUP_STATUS_BAD_REQUEST;
 	major_version = strtoul (version + 5, &p, 10);
-	if (*p != '.' || !g_ascii_isdigit (p[1]))
+	if (p + 1 >= str + len || *p != '.' || !g_ascii_isdigit (p[1]))
 		return SOUP_STATUS_BAD_REQUEST;
 	minor_version = strtoul (p + 1, &p, 10);
 	version_end = p;
@@ -378,7 +371,7 @@ soup_headers_parse_response (const char          *str,
 	 * after a response, which we then see prepended to the next
 	 * response on that connection.
 	 */
-	while ((*str == '\r' || *str == '\n') && len > 0) {
+	while (len > 0 && (*str == '\r' || *str == '\n')) {
 		str++;
 		len--;
 	}
@@ -537,7 +530,7 @@ soup_header_parse_quality_list (const char *header, GSList **unacceptable)
 	GSList *unsorted;
 	QualityItem *array;
 	GSList *sorted, *iter;
-	char *item, *semi;
+	char *semi;
 	const char *param, *equal, *value;
 	double qval;
 	int n;
@@ -550,9 +543,8 @@ soup_header_parse_quality_list (const char *header, GSList **unacceptable)
 	unsorted = soup_header_parse_list (header);
 	array = g_new0 (QualityItem, g_slist_length (unsorted));
 	for (iter = unsorted, n = 0; iter; iter = iter->next) {
-		item = iter->data;
 		qval = 1.0;
-		for (semi = strchr (item, ';'); semi; semi = strchr (semi + 1, ';')) {
+		for (semi = strchr (iter->data, ';'); semi; semi = strchr (semi + 1, ';')) {
 			param = skip_lws (semi + 1);
 			if (*param != 'q')
 				continue;
@@ -584,15 +576,15 @@ soup_header_parse_quality_list (const char *header, GSList **unacceptable)
 		if (qval == 0.0) {
 			if (unacceptable) {
 				*unacceptable = g_slist_prepend (*unacceptable,
-								 item);
+								 g_steal_pointer (&iter->data));
 			}
 		} else {
-			array[n].item = item;
+			array[n].item = g_steal_pointer (&iter->data);
 			array[n].qval = qval;
 			n++;
 		}
 	}
-	g_slist_free (unsorted);
+	g_slist_free_full (unsorted, g_free);
 
 	qsort (array, n, sizeof (QualityItem), sort_by_qval);
 	sorted = NULL;
@@ -653,8 +645,9 @@ soup_header_contains (const char *header, const char *token)
 }
 
 static void
-decode_quoted_string (char *quoted_string)
+decode_quoted_string_inplace (GString *quoted_gstring)
 {
+	char *quoted_string = quoted_gstring->str;
 	char *src, *dst;
 
 	src = quoted_string + 1;
@@ -668,10 +661,11 @@ decode_quoted_string (char *quoted_string)
 }
 
 static gboolean
-decode_rfc5987 (char *encoded_string)
+decode_rfc5987_inplace (GString *encoded_gstring)
 {
 	char *q, *decoded;
 	gboolean iso_8859_1 = FALSE;
+	const char *encoded_string = encoded_gstring->str;
 
 	q = strchr (encoded_string, '\'');
 	if (!q)
@@ -703,14 +697,7 @@ decode_rfc5987 (char *encoded_string)
 		decoded = utf8;
 	}
 
-	/* If encoded_string was UTF-8, then each 3-character %-escape
-	 * will be converted to a single byte, and so decoded is
-	 * shorter than encoded_string. If encoded_string was
-	 * iso-8859-1, then each 3-character %-escape will be
-	 * converted into at most 2 bytes in UTF-8, and so it's still
-	 * shorter.
-	 */
-	strcpy (encoded_string, decoded);
+	g_string_assign (encoded_gstring, decoded);
 	g_free (decoded);
 	return TRUE;
 }
@@ -720,15 +707,17 @@ parse_param_list (const char *header, char delim, gboolean strict)
 {
 	GHashTable *params;
 	GSList *list, *iter;
-	char *item, *eq, *name_end, *value;
-	gboolean override, duplicated;
 
 	params = g_hash_table_new_full (soup_str_case_hash, 
 					soup_str_case_equal,
-					g_free, NULL);
+					g_free, g_free);
 
 	list = parse_list (header, delim);
 	for (iter = list; iter; iter = iter->next) {
+		char *item, *eq, *name_end;
+		gboolean override, duplicated;
+		GString *parsed_value = NULL;
+
 		item = iter->data;
 		override = FALSE;
 
@@ -743,19 +732,19 @@ parse_param_list (const char *header, char delim, gboolean strict)
 
 			*name_end = '\0';
 
-			value = (char *)skip_lws (eq + 1);
+			parsed_value = g_string_new ((char *)skip_lws (eq + 1));
 
 			if (name_end[-1] == '*' && name_end > item + 1) {
 				name_end[-1] = '\0';
-				if (!decode_rfc5987 (value)) {
+				if (!decode_rfc5987_inplace (parsed_value)) {
+					g_string_free (parsed_value, TRUE);
 					g_free (item);
 					continue;
 				}
 				override = TRUE;
-			} else if (*value == '"')
-				decode_quoted_string (value);
-		} else
-			value = NULL;
+			} else if (parsed_value->str[0] == '"')
+				decode_quoted_string_inplace (parsed_value);
+		}
 
 		duplicated = g_hash_table_lookup_extended (params, item, NULL, NULL);
 
@@ -763,11 +752,16 @@ parse_param_list (const char *header, char delim, gboolean strict)
 			soup_header_free_param_list (params);
 			params = NULL;
 			g_slist_foreach (iter, (GFunc)g_free, NULL);
+			if (parsed_value)
+				g_string_free (parsed_value, TRUE);
 			break;
-		} else if (override || !duplicated)
-			g_hash_table_replace (params, item, value);
-		else
+		} else if (override || !duplicated) {
+			g_hash_table_replace (params, item, parsed_value ? g_string_free (parsed_value, FALSE) : NULL);
+		} else {
+			if (parsed_value)
+				g_string_free (parsed_value, TRUE);
 			g_free (item);
+		}
 	}
 
 	g_slist_free (list);
@@ -912,7 +906,7 @@ append_param_quoted (GString    *string,
 		     const char *name,
 		     const char *value)
 {
-	int len;
+	gsize len;
 
 	g_string_append (string, name);
 	g_string_append (string, "=\"");

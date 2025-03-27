@@ -107,9 +107,6 @@ static void soup_session_process_queue_item (SoupSession          *session,
                                              SoupMessageQueueItem *item,
                                              gboolean              loop);
 
-static void async_send_request_return_result (SoupMessageQueueItem *item,
-                                              gpointer stream, GError *error);
-
 #define SOUP_SESSION_MAX_CONNS_DEFAULT 10
 #define SOUP_SESSION_MAX_CONNS_PER_HOST_DEFAULT 2
 
@@ -667,7 +664,7 @@ soup_session_get_proxy_resolver (SoupSession *session)
  * @session: a #SoupSession
  * @tls_database: (nullable): a #GTlsDatabase
  *
- * Set a [class@GIo.TlsDatabase] to be used by @session on new connections.
+ * Set a [class@Gio.TlsDatabase] to be used by @session on new connections.
  *
  * If @tls_database is %NULL then certificate validation will always fail. See
  * [property@Session:tls-database] for more information.
@@ -1233,6 +1230,12 @@ soup_session_redirect_message (SoupSession *session,
 						   SOUP_ENCODING_NONE);
 	}
 
+        /* Strip all credentials on cross-origin redirect. */
+        if (!soup_uri_host_equal (soup_message_get_uri (msg), new_uri)) {
+                soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_AUTHORIZATION);
+                soup_message_set_auth (msg, NULL);
+        }
+
         soup_message_set_request_host_from_uri (msg, new_uri);
 	soup_message_set_uri (msg, new_uri);
 	g_uri_unref (new_uri);
@@ -1240,6 +1243,57 @@ soup_session_redirect_message (SoupSession *session,
 	return soup_session_requeue_item (session,
 					  soup_session_lookup_queue_item (session, msg),
 					  error);
+}
+
+static const char *
+state_to_string (SoupMessageQueueItemState state)
+{
+        switch (state) {
+                case SOUP_MESSAGE_STARTING:
+                        return "STARTING";
+                case SOUP_MESSAGE_CONNECTING:
+                        return "CONNECTING";
+                case SOUP_MESSAGE_CONNECTED:
+                        return "CONNECTED";
+                case SOUP_MESSAGE_TUNNELING:
+                        return "TUNNELING";
+                case SOUP_MESSAGE_READY:
+                        return "READY";
+                case SOUP_MESSAGE_RUNNING:
+                        return "RUNNING";
+                case SOUP_MESSAGE_CACHED:
+                        return "CACHED";
+                case SOUP_MESSAGE_REQUEUED:
+                        return "REQUEUED";
+                case SOUP_MESSAGE_RESTARTING:
+                        return "RESTARTING";
+                case SOUP_MESSAGE_FINISHING:
+                        return "FINISHING";
+                case SOUP_MESSAGE_FINISHED:
+                        return "FINISHED";
+        }
+
+        g_assert_not_reached ();
+        return "";
+}
+
+G_GNUC_PRINTF(2, 0)
+static void
+session_debug (SoupMessageQueueItem *item, const char *format, ...)
+{
+        va_list args;
+        char *message;
+
+        if (g_log_writer_default_would_drop (G_LOG_LEVEL_DEBUG, G_LOG_DOMAIN))
+                return;
+
+	va_start (args, format);
+	message = g_strdup_vprintf (format, args);
+	va_end (args);
+
+        g_assert (item);
+        g_log (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, "[SESSION QUEUE] [%p] [%s] %s", item,state_to_string (item->state), message);
+        g_free (message);
 }
 
 static void
@@ -1369,20 +1423,7 @@ soup_session_append_queue_item (SoupSession        *session,
 	return item;
 }
 
-static gboolean
-finish_request_if_item_cancelled (SoupMessageQueueItem *item)
-{
-        if (!g_cancellable_is_cancelled (item->cancellable))
-                return FALSE;
-
-        if (item->async)
-                async_send_request_return_result (item, NULL, NULL);
-
-        item->state = SOUP_MESSAGE_FINISHING;
-        return TRUE;
-}
-
-static gboolean
+static void
 soup_session_send_queue_item (SoupSession *session,
 			      SoupMessageQueueItem *item,
 			      SoupMessageIOCompletionFn completion_cb)
@@ -1421,13 +1462,9 @@ soup_session_send_queue_item (SoupSession *session,
 		soup_message_headers_set_content_length (request_headers, 0);
 	}
 
-        soup_message_starting (item->msg);
-        finish_request_if_item_cancelled (item);
-        if (item->state != SOUP_MESSAGE_RUNNING)
-                return FALSE;
-
-        soup_message_send_item (item->msg, item, completion_cb, item);
-        return TRUE;
+	soup_message_starting (item->msg);
+	if (item->state == SOUP_MESSAGE_RUNNING)
+                soup_message_send_item (item->msg, item, completion_cb, item);
 }
 
 static void
@@ -1476,6 +1513,8 @@ message_completed (SoupMessage *msg, SoupMessageIOCompletion completion, gpointe
 	SoupMessageQueueItem *item = user_data;
 
         g_assert (item->context == soup_thread_default_context ());
+
+        session_debug (item, "Message completed");
 
 	if (item->async)
 		soup_session_kick_queue (item->session);
@@ -1561,18 +1600,14 @@ tunnel_message_completed (SoupMessage *msg, SoupMessageIOCompletion completion,
                         g_object_unref (conn);
                         g_clear_object (&tunnel_item->error);
 			tunnel_item->state = SOUP_MESSAGE_RUNNING;
-                        if (soup_session_send_queue_item (session, tunnel_item, (SoupMessageIOCompletionFn)tunnel_message_completed))
-                                soup_message_io_run (msg, !tunnel_item->async);
-                        else
-                                tunnel_message_completed (msg, SOUP_MESSAGE_IO_INTERRUPTED, tunnel_item);
+			soup_session_send_queue_item (session, tunnel_item,
+						      (SoupMessageIOCompletionFn)tunnel_message_completed);
+			soup_message_io_run (msg, !tunnel_item->async);
 			return;
 		}
 
 		item->state = SOUP_MESSAGE_RESTARTING;
 	}
-
-        if (item->state == SOUP_MESSAGE_FINISHING)
-                soup_message_finished (tunnel_item->msg);
 
 	tunnel_item->state = SOUP_MESSAGE_FINISHED;
 	soup_session_unqueue_item (session, tunnel_item);
@@ -1625,10 +1660,9 @@ tunnel_connect (SoupMessageQueueItem *item)
         g_clear_object (&conn);
 	tunnel_item->state = SOUP_MESSAGE_RUNNING;
 
-        if (soup_session_send_queue_item (session, tunnel_item, (SoupMessageIOCompletionFn)tunnel_message_completed))
-                soup_message_io_run (msg, !item->async);
-        else
-                tunnel_message_completed (msg, SOUP_MESSAGE_IO_INTERRUPTED, tunnel_item);
+	soup_session_send_queue_item (session, tunnel_item,
+				      (SoupMessageIOCompletionFn)tunnel_message_completed);
+	soup_message_io_run (msg, !item->async);
 	g_object_unref (msg);
 }
 
@@ -1762,29 +1796,26 @@ soup_session_process_queue_item (SoupSession          *session,
         g_assert (item->context == soup_thread_default_context ());
 
 	do {
+                session_debug (item, "Processing item, paused=%d state=%d", item->paused, item->state);
 		if (item->paused)
 			return;
 
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
-                        if (!finish_request_if_item_cancelled (item)) {
-                                if (!soup_session_ensure_item_connection (session, item))
-                                        return;
-                        }
+			if (!soup_session_ensure_item_connection (session, item))
+				return;
 			break;
 
-		case SOUP_MESSAGE_CONNECTED:
-                        if (!finish_request_if_item_cancelled (item)) {
-                                SoupConnection *conn = soup_message_get_connection (item->msg);
+		case SOUP_MESSAGE_CONNECTED: {
+                        SoupConnection *conn = soup_message_get_connection (item->msg);
 
-                                if (soup_connection_is_tunnelled (conn))
+			if (soup_connection_is_tunnelled (conn))
 				tunnel_connect (item);
-                                else
-                                        item->state = SOUP_MESSAGE_READY;
-                                g_object_unref (conn);
-                        }
+			else
+				item->state = SOUP_MESSAGE_READY;
+                        g_object_unref (conn);
 			break;
-
+                }
 		case SOUP_MESSAGE_READY:
 			if (item->connect_only) {
 				item->state = SOUP_MESSAGE_FINISHING;
@@ -1796,17 +1827,16 @@ soup_session_process_queue_item (SoupSession          *session,
 				break;
 			}
 
-                        if (!finish_request_if_item_cancelled (item)) {
-                                item->state = SOUP_MESSAGE_RUNNING;
+			item->state = SOUP_MESSAGE_RUNNING;
 
-                                soup_message_set_metrics_timestamp (item->msg, SOUP_MESSAGE_METRICS_REQUEST_START);
+                        soup_message_set_metrics_timestamp (item->msg, SOUP_MESSAGE_METRICS_REQUEST_START);
 
-                                if (soup_session_send_queue_item (session, item, (SoupMessageIOCompletionFn)message_completed) && item->async)
-                                        async_send_request_running (session, item);
+			soup_session_send_queue_item (session, item,
+						      (SoupMessageIOCompletionFn)message_completed);
 
-                                return;
-                        }
-                        break;
+			if (item->async)
+				async_send_request_running (session, item);
+			return;
 
 		case SOUP_MESSAGE_RUNNING:
 			if (item->async)
@@ -2043,7 +2073,7 @@ feature_already_added (SoupSession *session, GType feature_type)
  * @feature: an object that implements #SoupSessionFeature
  *
  * Adds @feature's functionality to @session. You cannot add multiple
- * features of the same [alias@GLib.Type] to a session.
+ * features of the same [alias@GObject.Type] to a session.
  *
  * See the main #SoupSession documentation for information on what
  * features are present in sessions by default.
@@ -2827,10 +2857,13 @@ run_until_read_done (SoupMessage          *msg,
 	GInputStream *stream = NULL;
 	GError *error = NULL;
 
+        session_debug (item, "run_until_read_done");
+
 	soup_message_io_run_until_read_finish (msg, result, &error);
 	if (error && (!item->io_started || item->state == SOUP_MESSAGE_RESTARTING)) {
 		/* Message was restarted, we'll try again. */
 		g_error_free (error);
+                soup_message_queue_item_unref (item);
 		return;
 	}
 
@@ -2839,6 +2872,7 @@ run_until_read_done (SoupMessage          *msg,
 
 	if (stream) {
 		send_async_maybe_complete (item, stream);
+                soup_message_queue_item_unref (item);
 	        return;
 	}
 
@@ -2850,6 +2884,7 @@ run_until_read_done (SoupMessage          *msg,
 		soup_session_process_queue_item (item->session, item, FALSE);
 	}
 	async_send_request_return_result (item, NULL, error);
+        soup_message_queue_item_unref (item);
 }
 
 static void
@@ -2861,7 +2896,7 @@ async_send_request_running (SoupSession *session, SoupMessageQueueItem *item)
 						      item->io_priority,
 						      item->cancellable,
 						      (GAsyncReadyCallback)run_until_read_done,
-						      item);
+						      soup_message_queue_item_ref (item));
 		return;
 	}
 
@@ -2987,7 +3022,6 @@ idle_return_from_cache_cb (gpointer data)
 	return FALSE;
 }
 
-
 static gboolean
 async_respond_from_cache (SoupSession          *session,
 			  SoupMessageQueueItem *item)
@@ -3004,6 +3038,7 @@ async_respond_from_cache (SoupSession          *session,
 		GInputStream *stream;
 		GSource *source;
 
+                session_debug (item, "Had fresh cache response");
 		stream = soup_cache_send_response (cache, item->msg);
 		if (!stream) {
 			/* Cached file was deleted? */
@@ -3021,6 +3056,8 @@ async_respond_from_cache (SoupSession          *session,
 	} else if (response == SOUP_CACHE_RESPONSE_NEEDS_VALIDATION) {
 		SoupMessage *conditional_msg;
 		AsyncCacheConditionalData *data;
+
+                session_debug (item, "Needs validation");
 
 		conditional_msg = soup_cache_generate_conditional_request (cache, item->msg);
 		if (!conditional_msg)
@@ -3191,6 +3228,9 @@ soup_session_send_finish (SoupSession   *session,
  * [method@Session.send] will only return once a final response has been
  * received.
  *
+ * Possible error domains include [error@SessionError], [error@Gio.IOErrorEnum],
+ * and [error@Gio.TlsError] which you may want to specifically handle.
+ *
  * Returns: (transfer full): a #GInputStream for reading the
  *   response body, or %NULL on error.
  */
@@ -3222,10 +3262,8 @@ soup_session_send (SoupSession   *session,
 	while (!stream) {
 		/* Get a connection, etc */
 		soup_session_process_queue_item (session, item, TRUE);
-		if (item->state != SOUP_MESSAGE_RUNNING) {
-                        g_cancellable_set_error_if_cancelled (item->cancellable, &my_error);
+		if (item->state != SOUP_MESSAGE_RUNNING)
 			break;
-                }
 
 		/* Send request, read headers */
 		if (!soup_message_io_run_until_read (msg, item->cancellable, &my_error)) {
@@ -3234,17 +3272,21 @@ soup_session_send (SoupSession   *session,
 				g_clear_error (&my_error);
 				continue;
 			}
+                        session_debug (item, "Did not reach read: %s", my_error->message);
 			break;
 		}
 
 		stream = soup_message_io_get_response_istream (msg, &my_error);
-		if (!stream)
+		if (!stream) {
+                        session_debug (item, "Did not get a response stream");
 			break;
+                }
 
 		if (!expected_to_be_requeued (session, msg))
 			break;
 
 		/* Gather the current message body... */
+                session_debug (item, "Reading response stream");
 		ostream = g_memory_output_stream_new_resizable ();
 		if (g_output_stream_splice (ostream, stream,
 					    G_OUTPUT_STREAM_SPLICE_CLOSE_SOURCE |
@@ -3261,6 +3303,7 @@ soup_session_send (SoupSession   *session,
 		/* If the message was requeued, loop */
 		if (item->state == SOUP_MESSAGE_RESTARTING) {
 			g_object_unref (ostream);
+                        session_debug (item, "Restarting item");
 			continue;
 		}
 

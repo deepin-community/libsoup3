@@ -50,7 +50,7 @@ typedef struct {
 } SoupServerMessageIOHTTP1;
 
 #define RESPONSE_BLOCK_SIZE 8192
-#define HEADER_SIZE_LIMIT (64 * 1024)
+#define HEADER_SIZE_LIMIT (100 * 1024)
 
 static gboolean io_run_ready (SoupServerMessage *msg,
                               gpointer           user_data);
@@ -647,6 +647,7 @@ parse_headers (SoupServerMessage *msg,
         /* Handle request body encoding */
         *encoding = soup_message_headers_get_encoding (request_headers);
         if (*encoding == SOUP_ENCODING_UNRECOGNIZED) {
+                g_free (req_path);
                 if (soup_message_headers_get_list_common (request_headers, SOUP_HEADER_TRANSFER_ENCODING))
                         return SOUP_STATUS_NOT_IMPLEMENTED;
                 else

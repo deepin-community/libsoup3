@@ -17,7 +17,7 @@
 #include "soup.h"
 
 #define RESPONSE_BLOCK_SIZE 8192
-#define HEADER_SIZE_LIMIT (64 * 1024)
+#define HEADER_SIZE_LIMIT (100 * 1024)
 
 void
 soup_message_io_data_cleanup (SoupMessageIOData *io)
@@ -177,11 +177,7 @@ soup_message_io_data_get_source (SoupMessageIOData      *io,
 		base_source = g_timeout_source_new (0);
 
         source = soup_message_io_source_new (base_source, msg, io && io->paused, message_io_source_check);
-#if GLIB_CHECK_VERSION(2, 70, 0)
 	g_source_set_static_name (source, "SoupMessageIOData");
-#else
-	g_source_set_name (source, "SoupMessageIOData");
-#endif
 	g_source_set_callback (source, (GSourceFunc) callback, user_data, NULL);
 	return source;
 }

@@ -28,9 +28,11 @@
 /**
  * SoupServer:
  *
- * A HTTP server.
- *
- * #SoupServer implements a simple HTTP server.
+ * #SoupServer provides a basic implementation of an HTTP server. The
+ * recommended usage of this server is for internal use, tasks like
+ * a mock server for tests, a private service for IPC, etc. It is not
+ * recommended to be exposed to untrusted clients as it may be vulnerable
+ * to denial of service attacks or other exploits.
  *
  * To begin, create a server using [ctor@Server.new]. Add at least one
  * handler by calling [method@Server.add_handler] or
@@ -1338,16 +1340,13 @@ soup_server_listen_ipv4_ipv6 (SoupServer *server,
 	}
 	g_object_unref (addr6);
 
-	if (v4sock && g_error_matches (my_error, G_IO_ERROR,
-#if GLIB_CHECK_VERSION (2, 41, 0)
-				       G_IO_ERROR_NOT_SUPPORTED
-#else
-				       G_IO_ERROR_FAILED
-#endif
-				       )) {
+	if (v4sock &&
+            (g_error_matches (my_error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED) ||
+             g_error_matches (my_error, G_IO_ERROR, G_IO_ERROR_CONNECTION_REFUSED))) {
 		/* No IPv6 support, but IPV6_ONLY wasn't specified, so just
 		 * ignore the failure.
 		 */
+                g_debug ("Ignoring IPv6 listen error, assuming it isn't supported: %s", my_error->message);
 		g_error_free (my_error);
 		return TRUE;
 	}

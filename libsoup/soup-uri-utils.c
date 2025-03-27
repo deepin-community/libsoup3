@@ -301,8 +301,25 @@ soup_uri_decode_data_uri (const char *uri,
         if (content_type)
                 *content_type = NULL;
 
+#if !GLIB_CHECK_VERSION (2, 83, 1)
+        /* g_uri_to_string() is picky about paths that start with `//` and will assert, clean them up.
+         * https://gitlab.gnome.org/GNOME/glib/-/merge_requests/4407 */
+        const char *path = g_uri_get_path (soup_uri);
+        if (path[0] == '/' && path[1] == '/') {
+                char *new_path = g_strconcat ("/.", path, NULL);
+                GUri *new_uri = soup_uri_copy (soup_uri, SOUP_URI_PATH, new_path, SOUP_URI_NONE);
+
+                g_uri_unref (soup_uri);
+                g_free (new_path);
+
+                soup_uri = new_uri;
+        }
+#endif
+
         uri_string = g_uri_to_string (soup_uri);
         g_uri_unref (soup_uri);
+        if (!uri_string)
+                return NULL;
 
         start = uri_string + 5;
         comma = strchr (start, ',');
@@ -378,6 +395,8 @@ get_maybe_default_port (GUri *uri)
                 if (!strcmp (scheme, "https") || !strcmp (scheme, "wss"))
                         return -1;
                 break;
+        default:
+                break;
         }
 
         return port;
@@ -417,7 +436,7 @@ soup_uri_copy (GUri            *uri,
         va_start (args, first_component);
         while (component != SOUP_URI_NONE) {
                 if (component == SOUP_URI_PORT)
-                        values[component] = GINT_TO_POINTER (va_arg (args, glong));
+                        values[component] = GINT_TO_POINTER (va_arg (args, gint));
                 else
                         values[component] = va_arg (args, gpointer);
                 values_to_set[component] = TRUE;

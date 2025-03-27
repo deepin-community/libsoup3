@@ -7,10 +7,10 @@ Subject: test-utils: Add more debug for starting/stopping Apache
  1 file changed, 14 insertions(+), 3 deletions(-)
 
 diff --git a/tests/test-utils.c b/tests/test-utils.c
-index 04423d1..361a801 100644
+index bf977ed..37cd00b 100644
 --- a/tests/test-utils.c
 +++ b/tests/test-utils.c
-@@ -238,10 +238,12 @@ apache_cmd (const char *cmd)
+@@ -237,10 +237,12 @@ apache_cmd (const char *cmd)
  void
  apache_init (void)
  {
@@ -24,7 +24,7 @@ index 04423d1..361a801 100644
  
  	server_root = soup_test_build_filename_abs (G_TEST_BUILT, "", NULL);
  
-@@ -250,6 +252,9 @@ apache_init (void)
+@@ -249,6 +251,9 @@ apache_init (void)
  		exit (1);
  	}
  	apache_running = TRUE;
@@ -34,7 +34,7 @@ index 04423d1..361a801 100644
  }
  
  void
-@@ -258,14 +263,18 @@ apache_cleanup (void)
+@@ -257,14 +262,18 @@ apache_cleanup (void)
  	pid_t pid;
  	char *contents;
  
@@ -55,7 +55,7 @@ index 04423d1..361a801 100644
  	apache_running = FALSE;
  
  	if (pid) {
-@@ -279,6 +288,8 @@ apache_cleanup (void)
+@@ -278,6 +287,8 @@ apache_cleanup (void)
  	}
  
  	g_clear_pointer (&server_root, g_free);
