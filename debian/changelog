@@ -1,3 +1,95 @@
+libsoup3 (3.6.5-3) unstable; urgency=medium
+
+  * Team upload
+  * d/p/soup-init-Use-libdl-instead-of-gmodule-in-soup2_is_loaded.patch:
+    Fix a deadlock in some use patterns with dlopen and GModule.
+    If earlier versions of libsoup were dlopen'd (without using GModule)
+    in thread A, while thread B is holding the GModule lock but not the
+    libdl lock, the process would deadlock: in this scenario, thread A
+    is holding the libdl lock and attempts to take the GModule lock,
+    while thread B is holding the GModule lock and attempts to take the
+    libdl lock.
+    For example, this is known to affect some mopidy plugins, which load
+    libsoup via souphttpsrc.
+    Avoid this by making the check for libsoup2 symbols call dlopen
+    directly, so that there is no lock ordering inconsistency.
+    (Closes: #1109685)
+
+ -- Simon McVittie <smcv@debian.org>  Thu, 24 Jul 2025 10:40:02 +0100
+
+libsoup3 (3.6.5-2) unstable; urgency=medium
+
+  * Team upload
+  * d/patches: Re-export patch series (no functional changes)
+  * d/p/multipart-Fix-read-out-of-buffer-bounds-under-soup_multip.patch:
+    Add patch from upstream git to fix multipart message parsing.
+    Previously this could read outside the buffer.
+    This change isn't on upstream's 3.6.x branch yet, so take it from
+    3.7.x. Test coverage is included.
+    (CVE-2025-32914, Closes: #1103267)
+  * d/p/soup-server-http2-Check-validity-of-the-constructed-conne.patch,
+    d/p/soup-server-http2-Correct-check-of-the-validity-of-the-co.patch:
+    Add patch from upstream git to fix denial of service in HTTP/2 server.
+    The original change does not seem to have been fully correct; a
+    follow-up fix for it is also included.
+    (CVE-2025-32908, Closes: #1103265)
+  * d/p/auth-digest-fix-crash-in-soup_auth_digest_get_protection_.patch:
+    Add patch from upstream git to fix denial of service (a crash)
+    if a libsoup client is connected to a malicious server.
+    (CVE-2025-4476, Closes: #1105887)
+  * d/p/soup-message-headers-Correct-merge-of-ranges.patch,
+    d/p/server-mem-limit-test-Limit-memory-usage-only-when-not-bu.patch:
+    Add patch from upstream git fixing server-side DoS in Range requests,
+    with a follow-up patch to make the newly added test work when compiled
+    with AddressSanitizer.
+    (CVE-2025-32907, Closes: #1103264)
+  * d/p/soup-multipart-Verify-boundary-limits-for-multipart-body.patch:
+    Add patch from upstream git fixing denial of service with crafted
+    multipart body.
+    (CVE-2025-4948, Closes: #1106204)
+  * d/p/soup-multipart-Verify-array-bounds-before-accessing-its-m.patch:
+    Add patch from upstream git fixing another denial of service with
+    crafted multipart body.
+    (CVE-2025-4969, Closes: #1106248)
+  * d/p/soup-date-utils-Add-value-checks-for-date-time-parsing.patch,
+    d/p/tests-Add-tests-for-date-time-including-timezone-validati.patch:
+    Add patch from upstream git fixing date/time validation, and expand
+    test coverage for this area.
+    (CVE-2025-4945, Closes: #1106205)
+  * d/p/soup-form-Fix-a-possible-memory-leak-in-soup_form_decode_.patch:
+    Add patch from upstream git fixing some memory leaks
+  * d/p/websocket-test-Fix-two-memory-leaks.patch,
+    d/p/misc-test-Fix-two-memory-leaks.patch,
+    d/p/http2-test-Fix-several-memory-leaks.patch,
+    d/p/range-test-Fix-a-memory-leak.patch:
+    Add patches from upstream git fixing some memory leaks in tests.
+    These are certainly not denial-of-service issues, but it makes "real"
+    memory leaks harder to detect if there are benign memory leaks in
+    the test code.
+  * d/p/test-utils-flush-stdout-after-printing.patch:
+    Add patch from upstream git to improve test logging.
+    This does not change production code, and should make it somewhat
+    less difficult to diagnose the root cause of test failures.
+    (Maybe helps: #1035983, #1109107, #1109108, #1109120)
+  * d/p/test-utils-fix-deadlock-in-add_listener_in_thread.patch:
+    Add patch from upstream git to fix a deadlock during testing.
+    This hopefully addresses one of the many sources of low-probability test
+    failures that add up to a noticeable probability of the test suite
+    as a whole failing (see also #1035983). (Closes: #1109120)
+  * d/p/tests-Treat-multithread-test-as-an-Apache-test.patch:
+    Add patch to treat multithread-test like other Apache-based tests,
+    so that it will not be run in parallel with others.
+    (Maybe helps: #1035983)
+  * d/rules: Capture test output into the buildd log, even if successful.
+    If we don't have the output from successful test logs, it's more
+    difficult to assess whether workarounds have helped, because we won't
+    see whether the situation needing the workaround was ever triggered.
+  * d/p/debian/docs-Remove-remotely-accessed-logo.patch:
+    Remove remote logo references from local documentation, improving privacy
+    and fixing a Lintian warning
+
+ -- Simon McVittie <smcv@debian.org>  Sat, 12 Jul 2025 09:52:52 +0100
+
 libsoup3 (3.6.5-1) unstable; urgency=high
 
   * New upstream release
