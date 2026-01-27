@@ -44,5 +44,5 @@ ifneq ($(filter %-tests,$(built_binaries)),)
 	chmod --recursive --changes a+rX,u+w,og-w debian/*-tests/usr/libexec/installed-tests
 endif
 
-override_dh_gnome_clean:
-	dh_gnome_clean --no-control
+# We only use dh_gnome to automatically run dh_translations in Ubuntu
+override_dh_gnome:

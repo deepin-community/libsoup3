@@ -1,3 +1,49 @@
+libsoup3 (3.6.5-7) unstable; urgency=high
+
+  * SECURITY UPDATE: Cherry-pick upstream fix to reject duplicate Host headers
+    - CVE-2025-14523 (Closes: #1122667)
+  * Add patch to fix tests after changes to the public suffix list
+    (LP: #2138374)
+  * Bump Standards Version to 4.7.3
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 23 Jan 2026 12:34:38 -0500
+
+libsoup3 (3.6.5-6) unstable; urgency=high
+
+  [ Hlib Korzhynskyy ]
+  * SECURITY UPDATE: Use after free in HTTP/2 queues
+    - debian/patches/CVE-2025-12105.patch: Add SOUP_MESSAGE_FINISHED checks in
+      libsoup/soup-session.c
+    - CVE-2025-12105 (Closes: #1118783)
+
+  [ Jeremy Bícha ]
+  * Override dh_gnome to avoid build log warnings
+  * Remove obsolete dh_gnome_clean override
+  * Remove unnecessary Priority: optional field
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 16 Dec 2025 09:35:43 -0500
+
+libsoup3 (3.6.5-5) unstable; urgency=high
+
+  * SECURITY UPDATE: Out of bounds read
+    - CVE-2025-11021-1.patch, CVE-2025-11021-2.patch:
+      Cherry-pick upstream patches to fix out-of-bounds read in
+      libsoup/cookies/soup-cookie.c via soup_date_time_to_string()
+    - CVE-2025-11021 (Closes: #1116469)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 21 Nov 2025 16:36:49 -0500
+
+libsoup3 (3.6.5-4) unstable; urgency=medium
+
+  * Team upload
+  * d/p/tests-Gracefully-skip-test-if-a-large-memory-allocation-f.patch:
+    Add patch to fix a test failure on some 32-bit machines
+  * Build-depend on gobject-introspection instead of
+    libgirepository1.0-dev
+  * Standards-Version: 4.7.2 (no changes required)
+
+ -- Simon McVittie <smcv@debian.org>  Wed, 27 Aug 2025 09:25:32 +0100
+
 libsoup3 (3.6.5-3) unstable; urgency=medium
 
   * Team upload
