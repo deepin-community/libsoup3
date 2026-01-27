@@ -21,4 +21,10 @@ soup-multipart-Verify-boundary-limits-for-multipart-body.patch
 soup-multipart-Verify-array-bounds-before-accessing-its-m.patch
 soup-date-utils-Add-value-checks-for-date-time-parsing.patch
 tests-Add-tests-for-date-time-including-timezone-validati.patch
+tests-Gracefully-skip-test-if-a-large-memory-allocation-f.patch
 debian/docs-Remove-remotely-accessed-logo.patch
+CVE-2025-11021-1.patch
+CVE-2025-11021-2.patch
+CVE-2025-12105.patch
+tld-test-update-after-changes-in-the-public-suffix-list.patch
+CVE-2025-14523.patch

@@ -1,10 +1,7 @@
 Source: libsoup3
 Section: devel
-Priority: optional
 Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Iain Lane <laney@debian.org>,
-           Jeremy Bícha <jbicha@ubuntu.com>,
-           Sebastien Bacher <seb128@debian.org>
+Uploaders: Jeremy Bícha <jbicha@ubuntu.com>,
 Build-Depends: debhelper-compat (= 13),
                dh-sequence-gir,
                dh-sequence-gnome,
@@ -14,9 +11,9 @@ Build-Depends: debhelper-compat (= 13),
                gi-docgen,
                gir1.2-gio-2.0-dev,
                glib-networking,
+               gobject-introspection (>= 1.80),
                libapache2-mod-php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
                libbrotli-dev,
-               libgirepository1.0-dev,
                libglib2.0-dev (>= 2.70),
                libgnutls28-dev,
                libkrb5-dev,
@@ -29,18 +26,16 @@ Build-Depends: debhelper-compat (= 13),
                php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
                valac,
                winbind
-Standards-Version: 4.7.0
+Standards-Version: 4.7.3
 Vcs-Browser: https://salsa.debian.org/gnome-team/libsoup3
 Vcs-Git: https://salsa.debian.org/gnome-team/libsoup3.git
 Homepage: https://libsoup.gnome.org/libsoup-3.0/index.html
-Rules-Requires-Root: no
 
 Package: libsoup-3.0-dev
 Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: gir1.2-soup-3.0 (= ${binary:Version}),
-         libbrotli-dev,
+Depends: libbrotli-dev,
          libglib2.0-dev (>= 2.70),
          libkrb5-dev,
          libnghttp2-dev,
@@ -149,7 +144,7 @@ Package: gir1.2-soup-3.0
 Section: introspection
 Architecture: any
 Multi-Arch: same
-Depends: ${gir:Depends}, ${misc:Depends}, ${shlibs:Depends}
+Depends: ${gir:Depends}, ${misc:Depends}
 Description: GObject introspection data for the libsoup HTTP library
  This package contains introspection data for the libsoup HTTP library.
  .

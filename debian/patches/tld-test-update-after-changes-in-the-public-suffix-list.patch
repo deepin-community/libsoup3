@@ -1,0 +1,33 @@
+From: =?utf-8?q?Jeremy_B=C3=ADcha?= <jbicha@ubuntu.com>
+Date: Fri, 23 Jan 2026 11:36:21 -0500
+Subject: tld-test: update after changes in the public suffix list
+
+"*.bd" is no longer in the public suffix list
+so let's use ".jm" instead
+
+https://github.com/publicsuffix/list/pull/2623
+
+Forwarded: https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/502
+---
+ tests/tld-test.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/tests/tld-test.c b/tests/tld-test.c
+index ce6edfc..e505c34 100644
+--- a/tests/tld-test.c
++++ b/tests/tld-test.c
+@@ -41,10 +41,10 @@ static struct {
+ 	{ "a.b.example.uk.com", "example.uk.com", -1 },
+ 	{ "test.ac", "test.ac", -1 },
+ 	/* TLD with only 1 (wildcard) rule. */
+-	{ "bd", NULL, SOUP_TLD_ERROR_NOT_ENOUGH_DOMAINS },
+-	{ "c.bd", NULL, SOUP_TLD_ERROR_NOT_ENOUGH_DOMAINS },
+-	{ "b.c.bd", "b.c.bd", -1 },
+-	{ "a.b.c.bd", "b.c.bd", -1 },
++	{ "jm", NULL, SOUP_TLD_ERROR_NOT_ENOUGH_DOMAINS },
++	{ "c.jm", NULL, SOUP_TLD_ERROR_NOT_ENOUGH_DOMAINS },
++	{ "b.c.jm", "b.c.jm", -1 },
++	{ "a.b.c.jm", "b.c.jm", -1 },
+ 	/* More complex TLD. */
+ 	{ "jp", NULL, SOUP_TLD_ERROR_NOT_ENOUGH_DOMAINS },
+ 	{ "test.jp", "test.jp", -1 },
