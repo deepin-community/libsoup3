@@ -1,3 +1,9 @@
+libsoup3 (3.6.5-7deepin1) unstable; urgency=medium
+
+  * update: update version 
+
+ -- zengwei <zengwei1@uniontech.com>  Wed, 28 Jan 2026 17:24:43 +0800
+
 libsoup3 (3.6.5-7) unstable; urgency=high
 
   * SECURITY UPDATE: Cherry-pick upstream fix to reject duplicate Host headers
