@@ -1,8 +1,35 @@
-libsoup3 (3.6.5-7deepin1) unstable; urgency=medium
+libsoup3 (3.6.5-8) unstable; urgency=high
 
-  * update: update version 
+  [ Bruce Cable ]
+  * SECURITY UPDATE: Carriage Return Line Feed Injection
+    - debian/patches/CVE-2026-1467.patch: Do host validation when checking if
+      a GUri is valid
+      - CVE-2026-1467 (Closes: #1126548)
+    - debian/patches/CVE-2026-1536.patch: Always validate the headers value
+      when coming from untrusted source
+      - CVE-2026-1536 (Closes: #1126627)
+  * SECURITY UPDATE: Information Leak
+    - debian/patches/CVE-2026-1539.patch: Also remove Proxy-Authorization
+      header on cross origin redirect
+    - CVE-2026-1539 (Closes: #1126628)
 
- -- zengwei <zengwei1@uniontech.com>  Wed, 28 Jan 2026 17:24:43 +0800
+  [ Jeremy Bícha ]
+  * SECURITY UPDATE: HTTP Request smuggling vulnerability
+    - debian/patches/CVE-2026-1760.patch: Close the connection after
+      responding to a request containing Content-Length and Transfer-Encoding
+      - CVE-2026-1760 (Closes: #1126876)
+  * SECURITY UPDATE: Stack-based buffer overflow vulnerability
+    - debian/patches/CVE-2026-1761.patch: Make sure read length is smaller
+      than buffer length when boundary is found
+      - CVE-2026-1761 (Closes: #1126877)
+  * SECURITY UPDATE: HTTP Request smuggling vulnerability
+    - debian/patches/CVE-2026-1801-pre1.patch: Correct chunked trailers
+       end detection
+    - debian/patches/CVE-2026-1801.patch: Use CRLF as line boundary
+      when parsing chunked encoding data
+      - CVE-2026-1801
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 03 Feb 2026 16:42:19 -0500
 
 libsoup3 (3.6.5-7) unstable; urgency=high
 
