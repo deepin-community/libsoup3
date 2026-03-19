@@ -28,3 +28,10 @@ CVE-2025-11021-2.patch
 CVE-2025-12105.patch
 tld-test-update-after-changes-in-the-public-suffix-list.patch
 CVE-2025-14523.patch
+CVE-2026-1467.patch
+CVE-2026-1536.patch
+CVE-2026-1539.patch
+CVE-2026-1761.patch
+CVE-2026-1801-pre1.patch
+CVE-2026-1801.patch
+CVE-2026-1760.patch
