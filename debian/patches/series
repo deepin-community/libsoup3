@@ -35,3 +35,4 @@ CVE-2026-1761.patch
 CVE-2026-1801-pre1.patch
 CVE-2026-1801.patch
 CVE-2026-1760.patch
+cve_2026_4271.patch
