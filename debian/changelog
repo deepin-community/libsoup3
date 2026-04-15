@@ -1,8 +1,10 @@
-libsoup3 (3.6.5-8deepin1) unstable; urgency=medium
+libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
 
-  * fix build errot 
+  * Fix CVE-2026-5119: Do not send cookies to HTTP proxy for HTTPS
+    requests
 
- -- zengwei <zengwei1@uniontech.com>  Fri, 20 Mar 2026 15:00:19 +0800
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 15 Apr 2026 12:34:30 +0800
+
 
 libsoup3 (3.6.5-8) unstable; urgency=high
 
