@@ -1,0 +1,30 @@
+Description: Fix CVE-2026-4271: Use-After-Free in HTTP/2 server on_frame_recv_callback
+ A use-after-free vulnerability exists in libsoup's HTTP/2 server when user
+ signal handlers disconnect connections during callback execution. The
+ vulnerability occurs in on_frame_recv_callback, which increments a callback
+ counter (io->in_callback) but continues to access the io object after
+ emitting signals that may trigger disconnection and free the object.
+ .
+ This affects HTTP/2 servers that handle got-headers signal and disconnect
+ connections based on request validation (e.g., authentication failures,
+ malformed headers).
+Author: Patrick Griffis <pgriffis@igalia.com>
+Origin: upstream, https://gitlab.gnome.org/GNOME/libsoup/-/issues/496
+Bug: https://security-tracker.debian.org/tracker/CVE-2026-4271
+Bug-Debian: https://bugs.debian.org/1131447
+Forwarded: not-needed
+---
+ libsoup/server/http2/soup-server-message-io-http2.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+--- a/libsoup/server/http2/soup-server-message-io-http2.c
++++ b/libsoup/server/http2/soup-server-message-io-http2.c
+@@ -787,6 +787,8 @@ on_frame_recv_callback (nghttp2_session     *session,
+ 
+                 advance_state_from (msg_io, STATE_READ_HEADERS, STATE_READ_DATA);
+                 soup_server_message_got_headers (msg_io->msg);
++                if (soup_server_connection_get_io_data (io->conn) != (SoupServerMessageIO *)io)
++                        return 0;
+                 break;
+         }
+         case NGHTTP2_DATA:
