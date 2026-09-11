@@ -35,6 +35,11 @@ override_dh_auto_configure:
 override_dh_auto_test-arch:
 	dh_auto_test -- --timeout-multiplier 6 --verbose
 
+# Run the test suite only once: it spawns an Apache httpd on the fixed
+# port 127.0.0.1:47526, so a second run (the -indep pass) fails to bind
+# with "Address already in use" and every Apache-based test errors out
+override_dh_auto_test-indep:
+
 # debhelper >= 13.4 makes all of /usr/libexec executable, which is not
 # quite right for installed-tests
 override_dh_fixperms:
