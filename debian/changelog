@@ -1,3 +1,12 @@
+libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
+
+  * Rebuild with LTO enabled (dpkg vendor feature optimize/lto).
+  * d/rules: skip the test suite during the -indep pass: the suite
+    spawns an Apache httpd on a fixed port, so the second run fails to
+    bind ("Address already in use") after the arch pass already ran it.
+
+ -- tunaichao <tunaichao@uniontech.com>  Fri, 11 Sep 2026 16:41:11 +0800
+
 libsoup3 (3.6.5-8deepin1) unstable; urgency=medium
 
   * fix build errot 
