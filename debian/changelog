@@ -1,3 +1,10 @@
+libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
+
+  * Fix CVE-2026-4271: Use-After-Free in HTTP/2 server
+    on_frame_recv_callback
+
+ -- deepin-ci-robot <packages@deepin.org>  Wed, 15 Apr 2026 14:32:32 +0800
+
 libsoup3 (3.6.5-8deepin1) unstable; urgency=medium
 
   * fix build errot 
