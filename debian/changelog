@@ -11,6 +11,9 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
   * fix(cve): CVE-2026-15709 (high) - websocket: Bound decompressed
     message size during inflation   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-/issues/511
+  * fix(cve): CVE-2026-15711 (high) - websocket: Reject oversized
+    control frames   Upstream: https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/6cac7c6e123985c567bc2a2b46abc581161de757.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
