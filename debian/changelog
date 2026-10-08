@@ -4,6 +4,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
   * fix(cve): CVE-2026-85534 (medium) - http2: Keep the message alive
     across io_run_until in run_until_read   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/561
+  * fix(cve): CVE-2026-6324 (medium) - server: improve parsing of
+    chunked request body   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/96ac392b444d01bd5de1d1276b187c3ed49d048c
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
