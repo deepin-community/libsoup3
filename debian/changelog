@@ -17,6 +17,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
   * fix(cve): CVE-2026-4271 (high) - server: protect message io while
     reading and writing   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/511.patch
+  * fix(cve): CVE-2026-102556 (unknown) - websocket: Emit the pong
+    signal with a GBytes as declared   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/d2cbaf25f81a9ce041714cf842c366c67b0b873e
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
