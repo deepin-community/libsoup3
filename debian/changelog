@@ -25,6 +25,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
     after an early response to Expect: 100-continue   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/1b7fee598e0f644008028ca69d1ba74de8bc7db2.patch
+  * fix(cve): CVE-2026-102557 (unknown) - websocket: Cap message
+    reassembly and outgoing frames at the buffer limit   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/d7f074f8c8c90216f2476522836287c6f80fc53e.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
