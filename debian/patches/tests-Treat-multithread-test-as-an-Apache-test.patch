@@ -12,22 +12,22 @@ Maybe helps: #1035983
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tests/meson.build b/tests/meson.build
-index 6964602..cf4ddbd 100644
+index 9a51e9e..9d05c77 100644
 --- a/tests/meson.build
 +++ b/tests/meson.build
-@@ -95,7 +95,6 @@ tests = [
-   {'name': 'logger'},
+@@ -99,7 +99,6 @@ tests = [
+   {'name': 'logger', 'slow': true},
    {'name': 'misc'},
    {'name': 'multipart'},
 -  {'name': 'multithread'},
+   {'name': 'proxy-auth-cache', 'parallel': false},
    {'name': 'no-ssl'},
    {'name': 'ntlm'},
-   {'name': 'redirect'},
-@@ -147,6 +146,7 @@ if have_apache
+@@ -167,6 +166,7 @@ if have_apache
    tests += [
      {'name': 'auth', 'parallel': false},
      {'name': 'connection', 'parallel': false},
 +    {'name': 'multithread', 'parallel': false},
-     {'name': 'range', 'parallel': false},
      {'name': 'proxy', 'parallel': false},
    ]
+ 

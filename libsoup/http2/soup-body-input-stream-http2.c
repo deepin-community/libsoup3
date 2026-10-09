@@ -28,7 +28,7 @@
  * SoupBodyInputStreamHttp2
  * @short_description: Streaming input operations on memory chunks
  *
- * #SoupBodyInputStreamHttp2 is a class for using arbitrary
+ * [type@BodyInputStreamHttp2] is a class for using arbitrary
  * memory chunks as input for GIO streaming input operations.
  *
  * It differs from #GMemoryInputStream in that it frees older chunks
@@ -59,6 +59,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE (SoupBodyInputStreamHttp2, soup_body_input_stream_
 
 enum {
         NEED_MORE_DATA,
+        READ_DATA,
         LAST_SIGNAL
 };
 
@@ -67,7 +68,7 @@ static guint signals [LAST_SIGNAL] = { 0 };
 /**
  * soup_body_input_stream_http2_new:
  *
- * Creates a new empty #SoupBodyInputStreamHttp2. 
+ * Creates a new empty [type@BodyInputStreamHttp2].
  *
  * Returns: a new #GInputStream
  */
@@ -75,6 +76,19 @@ GInputStream *
 soup_body_input_stream_http2_new (void)
 {
         return G_INPUT_STREAM (g_object_new (SOUP_TYPE_BODY_INPUT_STREAM_HTTP2, NULL));
+}
+
+gsize
+soup_body_input_stream_http2_get_buffer_size (SoupBodyInputStreamHttp2 *stream)
+{
+        SoupBodyInputStreamHttp2Private *priv;
+
+        g_return_val_if_fail (SOUP_IS_BODY_INPUT_STREAM_HTTP2 (stream), 0);
+
+        priv = soup_body_input_stream_http2_get_instance_private (stream);
+
+        g_assert (priv->len >= priv->pos);
+        return priv->len - priv->pos;
 }
 
 void
@@ -108,6 +122,14 @@ soup_body_input_stream_http2_is_blocked (SoupBodyInputStreamHttp2 *stream)
         return priv->need_more_data_cancellable != NULL;
 }
 
+static gboolean
+have_more_data_coming (SoupBodyInputStreamHttp2 *stream)
+{
+        SoupBodyInputStreamHttp2Private *priv = soup_body_input_stream_http2_get_instance_private (stream);
+
+        return !priv->completed || priv->pos < priv->len;
+}
+
 static gssize
 soup_body_input_stream_http2_read_real (GInputStream  *stream,
                                         gboolean       blocking,
@@ -131,7 +153,7 @@ soup_body_input_stream_http2_read_real (GInputStream  *stream,
          * Once a chunk is fully read it is removed from our list and we
          * keep the offset of where the chunks start.
          */
-
+retry:
         count = MIN (read_count, priv->len - priv->pos);
 
         offset = priv->start_offset;
@@ -173,23 +195,23 @@ soup_body_input_stream_http2_read_real (GInputStream  *stream,
                 l = next;
         }
 
-        priv->pos += count;
+        gsize bytes_read = count - rest;
+        priv->pos += bytes_read;
 
-        /* We need to block until the read is completed.
-         * So emit a signal saying we need more data. */
-        if (count == 0 && blocking && !priv->completed) {
+        if (bytes_read > 0)
+                g_signal_emit (memory_stream, signals[READ_DATA], 0, (guint64)bytes_read);
+
+        /* When doing blocking reads we must always request more data. */
+        if (blocking && have_more_data_coming (memory_stream) && bytes_read == 0) {
                 GError *read_error = NULL;
-                g_signal_emit (memory_stream, signals[NEED_MORE_DATA], 0,
-                               blocking, cancellable, &read_error);
+                g_signal_emit (memory_stream, signals[NEED_MORE_DATA], 0, cancellable, &read_error);
 
                 if (read_error) {
                         g_propagate_error (error, read_error);
                         return -1;
                 }
 
-                return soup_body_input_stream_http2_read_real (
-                        stream, blocking, buffer, read_count, cancellable, error
-                );
+                goto retry;
         }
 
         return count;
@@ -212,12 +234,11 @@ soup_body_input_stream_http2_read_nonblocking (GPollableInputStream  *stream,
                                                GError               **error)
 {
         SoupBodyInputStreamHttp2 *memory_stream = SOUP_BODY_INPUT_STREAM_HTTP2 (stream);
-        SoupBodyInputStreamHttp2Private *priv = soup_body_input_stream_http2_get_instance_private (memory_stream);
         GError *inner_error = NULL;
 
         gsize read = soup_body_input_stream_http2_read_real (G_INPUT_STREAM (stream), FALSE, buffer, count, NULL, &inner_error);
 
-        if (read == 0 && !priv->completed && !inner_error) {
+        if (read == 0 && have_more_data_coming (memory_stream) && !inner_error) {
                 g_set_error_literal (error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK, _("Operation would block"));
                 return -1;
         }
@@ -253,19 +274,24 @@ soup_body_input_stream_http2_skip (GInputStream  *stream,
 
         count = MIN (count, priv->len - priv->pos);
         priv->pos += count;
+        if (count)
+                g_signal_emit (memory_stream, signals[READ_DATA], 0, (guint64)count);
 
         /* Remove all skipped chunks */
         gsize offset = priv->start_offset;
-        for (GList *l = g_queue_peek_head_link(priv->chunks); l; l = l->next) {
+        GList *l = g_queue_peek_head_link (priv->chunks);
+        while (l) {
                 GBytes *chunk = (GBytes *)l->data;
                 gsize chunk_len = g_bytes_get_size (chunk);
 
-                if (offset + chunk_len <= priv->pos) {
-                        g_queue_delete_link (priv->chunks, l);
-                        g_bytes_unref (chunk);
-                        offset += chunk_len;
-                }
-                break;
+                if (offset + chunk_len > priv->pos)
+                        break;
+
+                GList *next = l->next;
+                g_queue_delete_link (priv->chunks, l);
+                g_bytes_unref (chunk);
+                offset += chunk_len;
+                l = next;
         }
         priv->start_offset = offset;
 
@@ -436,7 +462,16 @@ soup_body_input_stream_http2_class_init (SoupBodyInputStreamHttp2Class *klass)
                               0,
                               NULL, NULL,
                               NULL,
-                              G_TYPE_ERROR,
-                              2, G_TYPE_BOOLEAN,
+                              G_TYPE_ERROR, 1,
                               G_TYPE_CANCELLABLE);
+
+        signals[READ_DATA] =
+                g_signal_new ("read-data",
+                              G_OBJECT_CLASS_TYPE (object_class),
+                              G_SIGNAL_RUN_FIRST,
+                              0,
+                              NULL, NULL,
+                              NULL,
+                              G_TYPE_NONE, 1,
+                              G_TYPE_UINT64);
 }

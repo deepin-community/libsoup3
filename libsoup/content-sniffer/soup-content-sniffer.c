@@ -28,10 +28,10 @@
  *
  * Sniffs the mime type of messages.
  *
- * A #SoupContentSniffer tries to detect the actual content type of
+ * A [class@ContentSniffer] tries to detect the actual content type of
  * the files that are being downloaded by looking at some of the data
  * before the [class@Message] emits its [signal@Message::got-headers] signal.
- * #SoupContentSniffer implements [iface@SessionFeature], so you can add
+ * [class@ContentSniffer] implements [iface@SessionFeature], so you can add
  * content sniffing to a session with [method@Session.add_feature] or
  * [method@Session.add_feature_by_type].
  **/
@@ -524,6 +524,10 @@ sniff_unknown (SoupContentSniffer *sniffer, GBytes *buffer,
 		if (!sniff_scriptable && type_row->scriptable)
 			continue;
 
+		/* Ensure we have data to sniff - prevents underflow in resource_length - 1 */
+		if (resource_length == 0)
+			continue;
+
 		if (type_row->has_ws) {
 			guint index_stream = 0;
 			guint index_pattern = 0;
@@ -906,7 +910,7 @@ soup_content_sniffer_session_feature_init (SoupSessionFeatureInterface *feature_
 /**
  * soup_content_sniffer_new:
  *
- * Creates a new #SoupContentSniffer.
+ * Creates a new [class@ContentSniffer].
  *
  * Returns: a new #SoupContentSniffer
  **/

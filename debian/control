@@ -1,54 +1,57 @@
 Source: libsoup3
-Section: devel
+X-Style: black
+Standards-Version: 4.7.4
 Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Jeremy Bícha <jbicha@ubuntu.com>,
-Build-Depends: debhelper-compat (= 13),
-               dh-sequence-gir,
-               dh-sequence-gnome,
-               apache2 <!nocheck> <!noinsttest>,
-               ca-certificates <!nocheck> <!noinsttest>,
-               curl <!nocheck> <!noinsttest>,
-               gi-docgen,
-               gir1.2-gio-2.0-dev,
-               glib-networking,
-               gobject-introspection (>= 1.80),
-               libapache2-mod-php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
-               libbrotli-dev,
-               libgirepository1.0-dev,
-               libglib2.0-dev (>= 2.70),
-               libgnutls28-dev,
-               libkrb5-dev,
-               libnghttp2-dev,
-               libnss-myhostname [linux-any] <!nocheck>,
-               libpsl-dev,
-               libsqlite3-dev,
-               libsysprof-capture-4-dev [linux-any],
-               meson,
-               php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
-               valac,
-               winbind
-Standards-Version: 4.7.3
+Uploaders:
+ Jeremy Bícha <jbicha@ubuntu.com>,
+Section: devel
+Build-Depends:
+ debhelper-compat (= 14),
+ dh-sequence-gir,
+ dh-sequence-gnome,
+ apache2 <!nocheck> <!noinsttest>,
+ ca-certificates <!nocheck> <!noinsttest>,
+ curl <!nocheck> <!noinsttest>,
+ gi-docgen,
+ gir1.2-gio-2.0-dev,
+ glib-networking,
+ gobject-introspection (>= 1.80),
+ libapache2-mod-php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
+ libbrotli-dev,
+ libglib2.0-dev,
+ libgnutls28-dev,
+ libkrb5-dev,
+ libnghttp2-dev,
+ libnss-myhostname [linux-any] <!nocheck>,
+ libpsl-dev,
+ libsqlite3-dev,
+ libsysprof-capture-4-dev [linux-any],
+ libzstd-dev,
+ meson,
+ php (<< 2:9) [!i386] <!nocheck> <!noinsttest>,
+ valac,
+ winbind,
 Vcs-Browser: https://salsa.debian.org/gnome-team/libsoup3
 Vcs-Git: https://salsa.debian.org/gnome-team/libsoup3.git
 Homepage: https://libsoup.gnome.org/libsoup-3.0/index.html
 
 Package: libsoup-3.0-dev
-Section: libdevel
 Architecture: any
 Multi-Arch: same
-Depends: libbrotli-dev,
-         libglib2.0-dev (>= 2.70),
-         libkrb5-dev,
-         libnghttp2-dev,
-         libpsl-dev,
-         libsoup-3.0-0 (= ${binary:Version}),
-         libsqlite3-dev,
-         libsysprof-capture-4-dev [linux-any],
-         zlib1g-dev,
-         ${gir:Depends},
-         ${misc:Depends}
-Suggests: libsoup-3.0-doc
-Provides: ${gir:Provides}
+Section: libdevel
+Depends:
+ libbrotli-dev,
+ libglib2.0-dev,
+ libkrb5-dev,
+ libnghttp2-dev,
+ libpsl-dev,
+ libsoup-3.0-0 (= ${binary:Version}),
+ libsqlite3-dev,
+ libsysprof-capture-4-dev [linux-any],
+ libzstd-dev,
+ zlib1g-dev,
+Suggests:
+ libsoup-3.0-doc,
 Description: HTTP library implementation in C -- Development files
  It was originally part of a SOAP (Simple Object Access Protocol)
  implementation called Soup, but the SOAP and non-SOAP parts have now been
@@ -72,13 +75,12 @@ Description: HTTP library implementation in C -- Development files
  This package contains the development files.
 
 Package: libsoup-3.0-0
-Section: libs
 Architecture: any
 Multi-Arch: same
-Depends: glib-networking,
-         libsoup-3.0-common,
-         ${misc:Depends},
-         ${shlibs:Depends}
+Section: libs
+Depends:
+ glib-networking,
+ libsoup-3.0-common,
 Description: HTTP library implementation in C -- Shared library
  It was originally part of a SOAP (Simple Object Access Protocol)
  implementation called Soup, but the SOAP and non-SOAP parts have now been
@@ -104,7 +106,6 @@ Description: HTTP library implementation in C -- Shared library
 Package: libsoup-3.0-common
 Architecture: all
 Multi-Arch: foreign
-Depends: ${misc:Depends}
 Description: HTTP library implementation in C -- Common files
  It was originally part of a SOAP (Simple Object Access Protocol)
  implementation called Soup, but the SOAP and non-SOAP parts have now been
@@ -113,12 +114,13 @@ Description: HTTP library implementation in C -- Common files
  This package contains architecture-independent files such as translations.
 
 Package: libsoup-3.0-doc
-Section: doc
 Architecture: all
 Multi-Arch: foreign
-Depends: ${misc:Depends}
-Recommends: libglib2.0-doc
-Suggests: libsoup-3.0-dev
+Section: doc
+Recommends:
+ libglib2.0-doc,
+Suggests:
+ libsoup-3.0-dev,
 Description: HTTP library implementation in C -- API Reference
  It was originally part of a SOAP (Simple Object Access Protocol)
  implementation called Soup, but the SOAP and non-SOAP parts have now been
@@ -142,10 +144,9 @@ Description: HTTP library implementation in C -- API Reference
  This package contains the documentation.
 
 Package: gir1.2-soup-3.0
-Section: introspection
 Architecture: any
 Multi-Arch: same
-Depends: ${gir:Depends}, ${misc:Depends}
+Section: introspection
 Description: GObject introspection data for the libsoup HTTP library
  This package contains introspection data for the libsoup HTTP library.
  .
@@ -159,19 +160,19 @@ Description: GObject introspection data for the libsoup HTTP library
  dynamic bindings.
 
 Package: libsoup-3.0-tests
+Architecture: any
 Build-Profiles: <!noinsttest>
 Section: misc
-Architecture: any
-Depends: apache2,
-         ca-certificates,
-         curl,
-         libapache2-mod-php (<< 2:9) [!i386],
-         libapache2-mod-php [!i386],
-         libnss-myhostname [linux-any],
-         php [!i386],
-         ${misc:Depends},
-         ${shlibs:Depends}
-Recommends: gnome-desktop-testing
+Depends:
+ apache2,
+ ca-certificates,
+ curl,
+ libapache2-mod-php (<< 2:9) [!i386],
+ libapache2-mod-php [!i386],
+ libnss-myhostname [linux-any],
+ php [!i386],
+Recommends:
+ gnome-desktop-testing,
 Description: HTTP library implementation in C -- installed tests
  libsoup uses the Glib main loop and is designed to work well with GTK+
  applications. This enables GNOME applications to access HTTP servers

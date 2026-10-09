@@ -83,7 +83,6 @@ test_init (int argc, char **argv, GOptionEntry *entries)
 	g_set_prgname (name);
 
 	g_test_init (&argc, &argv, NULL);
-	g_test_set_nonfatal_assertions ();
 	g_test_bug_base ("https://bugzilla.gnome.org/");
 
 	opts = g_option_context_new (NULL);
@@ -143,6 +142,8 @@ debug_printf (int level, const char *format, ...)
 	va_start (args, format);
 	g_vprintf (format, args);
 	va_end (args);
+
+	fflush (stdout);
 }
 
 gboolean
@@ -605,9 +606,11 @@ static gboolean
 add_listener_in_thread (gpointer user_data)
 {
 	AddListenerData *data = user_data;
+	GUri *uri;
 
-	data->uri = add_listener (data->server, data->scheme, data->host);
+	uri = add_listener (data->server, data->scheme, data->host);
 	g_mutex_lock (&data->mutex);
+	data->uri = uri;
 	g_cond_signal (&data->cond);
 	g_mutex_unlock (&data->mutex);
 
@@ -639,9 +642,9 @@ soup_test_server_get_uri (SoupServer    *server,
 		data.host = host;
 		data.uri = NULL;
 
-		g_mutex_lock (&data.mutex);
 		soup_add_completion (context, add_listener_in_thread, &data);
 
+		g_mutex_lock (&data.mutex);
 		while (!data.uri)
 			g_cond_wait (&data.cond, &data.mutex);
 
@@ -736,7 +739,7 @@ static gboolean
 cancel_request_timeout (GCancellable *cancellable)
 {
 	g_cancellable_cancel (cancellable);
-	return FALSE;
+	return G_SOURCE_REMOVE;
 }
 
 GInputStream *

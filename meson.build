@@ -1,6 +1,6 @@
 project('libsoup', 'c',
-        version: '3.6.5',
-        meson_version : '>= 0.54',
+        version: '3.8.0',
+        meson_version : '>= 0.62',
         license : 'LGPL-2.0-or-later',
         default_options : [
           'c_std=gnu99',
@@ -18,7 +18,7 @@ soup_version = meson.project_version()
 # - If binary compatibility has been broken (eg removed or changed interfaces)
 #   change to [C+1, 0, 0]
 # - If the interface is the same as the previous version, use [C, R+1, A].
-soup_version_info = [7, 4, 7]
+soup_version_info = [8, 0, 8]
 
 # Turn [C, R, A] into an actual usable *soversion*.
 soup_soversion_major = soup_version_info[0] - soup_version_info[2] # Current-Age
@@ -135,23 +135,30 @@ if not sqlite_dep.found()
 endif
 
 brotlidec_dep = dependency('libbrotlidec', required : get_option('brotli'))
+brotlienc_dep = dependency('libbrotlienc', required : get_option('brotli'))
 if brotlidec_dep.found()
   cdata.set('WITH_BROTLI', true)
 endif
 
+libzstd_dep = dependency('libzstd', required : get_option('zstd'), version: '>= 1.4.0')
+if libzstd_dep.found()
+  cdata.set('WITH_ZSTD', true)
+endif
+
 unix_socket_dep = dependency('gio-unix-2.0',
                              version : glib_required_version,
-                             fallback: ['glib', 'libgiounix_dep'],
+                             fallback: (host_system != 'windows') ? ['glib', 'libgiounix_dep'] : [],
                              required : false)
 
 platform_deps = []
 is_static_library = get_option('default_library') == 'static'
 if not is_static_library
   if host_machine.system() == 'windows'
-    platform_deps = [cc.find_library('ws2_32')]
+    platform_deps += [cc.find_library('ws2_32')]
     cdata.set('DLL_EXPORT', true)
     cdata.set('_SOUP_EXTERN', '__declspec(dllexport) extern')
   else
+    platform_deps += [cc.find_library('dl', required: false)]
     cdata.set('_SOUP_EXTERN', '__attribute__((visibility("default"))) extern')
   endif
 endif
@@ -159,6 +166,10 @@ endif
 libpsl_required_version = '>= 0.20'
 libpsl_dep = dependency('libpsl', version : libpsl_required_version,
   fallback : ['libpsl', 'libpsl_dep'])
+
+if cc.has_header('dlfcn.h')
+    cdata.set('HAVE_DLFCN_H', '1')
+endif
 
 if cc.has_function('gmtime_r', prefix : '#include <time.h>', args : default_source_flag)
     cdata.set('HAVE_GMTIME_R', '1')
@@ -242,18 +253,18 @@ apache_httpd2 = find_program('httpd2', 'httpd', 'apache2', 'apache',
 have_apache=false
 apache_httpd2_version = ''
 if apache_httpd2.found() and apachectl.found()
-  apache_httpd2_version_raw = run_command(apachectl.path(), '-v', check: false)
+  apache_httpd2_version_raw = run_command(apachectl.full_path(), '-v', check: false)
   # It seems that from version 2.4.39 apachectl doesn't take arguments, fallback
   # to calling apache directly just in case.
   if apache_httpd2_version_raw.returncode() != 0
-    apache_httpd2_version_raw = run_command(apache_httpd2.path(), '-v', check: false)
+    apache_httpd2_version_raw = run_command(apache_httpd2.full_path(), '-v', check: false)
   endif
   if apache_httpd2_version_raw.returncode() == 0
     apache_httpd2_version = apache_httpd2_version_raw.stdout().split('\n')[0]
     apache_httpd2_version = apache_httpd2_version.split('/')[1].split(' ')[0]
     if apache_httpd2_version.version_compare('>=2.4')
       have_apache = true
-      cdata.set_quoted('APACHE_HTTPD', apache_httpd2.path())
+      cdata.set_quoted('APACHE_HTTPD', apache_httpd2.full_path())
     else
       message('Found ' + apache_httpd2_version + ', but at least 2.4 is needed - ignoring')
     endif
@@ -261,11 +272,11 @@ if apache_httpd2.found() and apachectl.found()
 endif
 
 if have_apache
-  apache_modules_dirs_out = run_command('get_apache_modules_dirs.py', apachectl.path(), check: false)
+  apache_modules_dirs_out = run_command('get_apache_modules_dirs.py', apachectl.full_path(), check: false)
   have_apache = (apache_modules_dirs_out.returncode() == 0)
   # Same as above, using apachectl might fail, try apache directly.
   if not have_apache
-    apache_modules_dirs_out = run_command('get_apache_modules_dirs.py', apache_httpd2.path(), check: false)
+    apache_modules_dirs_out = run_command('get_apache_modules_dirs.py', apache_httpd2.full_path(), check: false)
     have_apache = (apache_modules_dirs_out.returncode() == 0)
   endif
   if have_apache
@@ -329,7 +340,7 @@ if host_machine.system() != 'windows'
 
   if ntlm_auth.found()
     add_project_arguments('-DUSE_NTLM_AUTH=1', language : 'c')
-    add_project_arguments('-DNTLM_AUTH="' + ntlm_auth.path() + '"', language : 'c')
+    add_project_arguments('-DNTLM_AUTH="' + ntlm_auth.full_path() + '"', language : 'c')
   endif
 else
   ntlm_auth = dependency('', required: false)
@@ -356,6 +367,10 @@ endif
 configinc = include_directories('.')
 
 prefix = get_option('prefix')
+
+if get_option('b_sanitize') != 'none'
+  cdata.set_quoted('B_SANITIZE_OPTION', get_option('b_sanitize'))
+endif
 
 cdata.set_quoted('PACKAGE_VERSION', soup_version)
 cdata.set_quoted('LOCALEDIR', join_paths(prefix, get_option('localedir')))
@@ -390,6 +405,7 @@ summary({
     'GSSAPI' : gssapi_dep.found(),
     'NTLM' : ntlm_auth.found(),
     'Brotli' : brotlidec_dep.found(),
+    'zstd' : libzstd_dep.found(),
     'Translations' : xgettext.found(),
     'GIR' : enable_introspection,
     'VAPI' : enable_vapi,

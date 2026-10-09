@@ -62,6 +62,7 @@ typedef struct {
         gboolean advertise_http2;
         SoupHTTPVersion http_version;
         SoupServerMessageIO *io_data;
+        GCancellable *cancellable;
 
         GSocketAddress *local_addr;
         GSocketAddress *remote_addr;
@@ -86,6 +87,7 @@ soup_server_connection_init (SoupServerConnection *conn)
         SoupServerConnectionPrivate *priv = soup_server_connection_get_instance_private (conn);
 
         priv->http_version = SOUP_HTTP_1_1;
+        priv->cancellable = g_cancellable_new ();
 }
 
 static void
@@ -108,6 +110,9 @@ soup_server_connection_finalize (GObject *object)
 {
         SoupServerConnection *conn = SOUP_SERVER_CONNECTION (object);
         SoupServerConnectionPrivate *priv = soup_server_connection_get_instance_private (conn);
+
+        g_cancellable_cancel (priv->cancellable);
+        g_clear_object (&priv->cancellable);
 
         if (priv->conn) {
                 disconnect_internal (conn);
@@ -159,6 +164,10 @@ soup_server_connection_set_property (GObject      *object,
                 break;
         case PROP_TLS_AUTH_MODE:
                 priv->tls_auth_mode = g_value_get_enum (value);
+                break;
+        case PROP_TLS_PEER_CERTIFICATE:
+        case PROP_TLS_PEER_CERTIFICATE_ERRORS:
+                g_assert_not_reached ();
                 break;
         default:
                 G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -428,8 +437,9 @@ tls_connection_handshake_ready_cb (GTlsConnection       *tls_conn,
                                    SoupServerConnection *conn)
 {
         SoupServerConnectionPrivate *priv = soup_server_connection_get_instance_private (conn);
+        GError *error = NULL;
 
-        if (g_tls_connection_handshake_finish (tls_conn, result, NULL)) {
+        if (g_tls_connection_handshake_finish (tls_conn, result, &error)) {
                 const char *protocol = g_tls_connection_get_negotiated_protocol (tls_conn);
 
                 if (g_strcmp0 (protocol, "h2") == 0)
@@ -440,9 +450,11 @@ tls_connection_handshake_ready_cb (GTlsConnection       *tls_conn,
                         priv->http_version = SOUP_HTTP_1_1;
 
                 soup_server_connection_connected (conn);
-        } else {
+        } else if (!g_error_matches (error, G_IO_ERROR, G_IO_ERROR_CANCELLED)) {
                 soup_server_connection_disconnect (conn);
         }
+
+        g_clear_error (&error);
 }
 
 void
@@ -518,7 +530,7 @@ soup_server_connection_accepted (SoupServerConnection *conn)
                                          conn, G_CONNECT_SWAPPED);
 
                 g_tls_connection_handshake_async (G_TLS_CONNECTION (priv->conn),
-                                                  G_PRIORITY_DEFAULT, NULL,
+                                                  G_PRIORITY_DEFAULT, priv->cancellable,
                                                   (GAsyncReadyCallback)tls_connection_handshake_ready_cb,
                                                   conn);
                 return;

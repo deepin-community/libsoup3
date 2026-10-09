@@ -186,7 +186,8 @@ identify_auth (SoupMessage *msg)
 			num = 0;
 	}
 
-	g_assert (num >= 0 && num <= 4);
+	g_assert_cmpint (num, >=, 0);
+	g_assert_cmpint (num, <=, 4);
 
 	return num;
 }
@@ -312,7 +313,7 @@ do_pipelined_auth_test (void)
 		g_object_set_data (G_OBJECT (msg), "#", GINT_TO_POINTER (i + 1));
 		g_signal_connect (msg, "authenticate",
 				  G_CALLBACK (bug271540_authenticate), &authenticated);
-		g_signal_connect (msg, "wrote_headers",
+		g_signal_connect (msg, "wrote-headers",
 				  G_CALLBACK (bug271540_sent), &authenticated);
 
 		g_signal_connect (msg, "finished",
@@ -759,7 +760,7 @@ static gboolean
 async_authenticate_cancel_idle (AsyncAuthCancelData *data)
 {
 	g_cancellable_cancel (data->cancellable);
-	return FALSE;
+	return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -796,6 +797,7 @@ do_async_auth_cancel_test (void)
 	g_assert_null (soup_test_session_async_send (session, msg, data.cancellable, &error));
 	g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 
+	g_error_free (error);
 	g_object_unref (data.auth);
 	g_object_unref (data.cancellable);
 	g_object_unref (msg);
@@ -1107,7 +1109,7 @@ auth_close_idle_authenticate (gpointer user_data)
 	soup_auth_authenticate (acd->auth, "user", "good-basic");
 
 	g_object_unref (acd->auth);
-	return FALSE;
+	return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -1170,7 +1172,7 @@ static gboolean
 infinite_cancel (gpointer session)
 {
 	soup_session_abort (session);
-	return FALSE;
+	return G_SOURCE_REMOVE;
 }
 
 static gboolean
@@ -1642,6 +1644,7 @@ request_send_cb (SoupSession  *session,
         g_assert_null (stream);
         g_assert_error (error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
 
+	g_error_free (error);
         g_main_loop_quit (loop);
 }
 
@@ -1934,7 +1937,7 @@ redirect_server_callback (SoupServer        *server,
         return;
     }
 
-    g_assert_not_reached ();
+    g_assert_cmpstr ("This code", ==, "should not be reached");
 }
 
 static gboolean

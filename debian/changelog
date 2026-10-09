@@ -1,8 +1,83 @@
-libsoup3 (3.6.5-8deepin1) unstable; urgency=medium
+libsoup3 (3.8.0-2) unstable; urgency=high
 
-  * fix build errot 
+  * Add patch to revert a change in tests/cookies-test.c that broke
+    the test for armhf (but not i386)
 
- -- zengwei <zengwei1@uniontech.com>  Fri, 20 Mar 2026 15:00:19 +0800
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 01 Oct 2026 12:55:13 +0200
+
+libsoup3 (3.8.0-1) unstable; urgency=high
+
+  * New upstream release (LP: #2169104)
+    - SECURITY UPDATE:
+      - CVE-2025-32049 (Closes: #1102067)
+      - CVE-2026-0719 (Closes: #1125083)
+      - CVE-2026-1536 (Closes: #1130501)
+      - CVE-2026-2436 (Closes: #1130498)
+      - CVE-2026-2708 (Closes: #1128582)
+      - CVE-2026-3099 (Closes: #1129316)
+      - CVE-2026-3633 (Closes: #1130500)
+      - CVE-2026-3634 (Closes: #1130501)
+      - CVE-2026-4271 (Closes: #1131447)
+      - CVE-2026-5119 (Closes: #1132331)
+      - CVE-2026-6324 (Closes: #1138213)
+      - CVE-2026-12478 (Closes: #1142836)
+      - CVE-2026-12547 (Closes: #1142837)
+      - CVE-2026-12548 (Closes: #1142838)
+      - CVE-2026-12549 (Closes: #1140924)
+      - CVE-2026-15709 (Closes: #1142839)
+      - CVE-2026-15711 (Closes: #1142840)
+      - CVE-2026-15712 (Closes: #1142841)
+      - CVE-2026-15713 (Closes: #1142842)
+      - CVE-2026-15714 (Closes: #1142843)
+      - CVE-2026-66337 (Closes: #1142844)
+      - CVE-2026-66338 (Closes: #1142845)
+      - CVE-2026-66339 (Closes: #1142846)
+      - CVE-2026-77014 (Closes: #1144976)
+      - CVE-2026-77680 (Closes: #1145785)
+      - CVE-2026-85197 (Closes: #1146877)
+      - CVE-2026-85534 (Closes: #1146878)
+      - CVE-2026-102555
+      - CVE-2026-102556
+      - CVE-2026-102557
+      - CVE-2026-102558
+      - CVE-2026-102559
+      - CVE-2026-102560
+      - CVE-2026-103399
+  * libsoup-3.0-0.symbols: Add new symbols
+  * Add Build-Depends: libzstd-dev
+  * Add patch to revert build test change that doesn't work for 32-bit architectures
+  * Remove one security patch applied in new release
+  * Build with debhelper compat 14
+  * Run wrap-and-sort -ast
+  * Update debian/upstream/metadata
+  * Update Standards Version to 4.7.4
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 01 Oct 2026 07:27:21 +0200
+
+libsoup3 (3.6.6-1) unstable; urgency=high
+
+  * New upstream release
+    - SECURITY UPDATE: Integer overflow introduced by CVE-2025-32052 fix
+      when resource_length=0
+      - CVE-2026-2369 (Closes: #1127843)
+    - SECURITY UPDATE: Out-of-bounds read in libsoup handle_partial_get()
+      leading to heap information disclosure
+      - CVE-2026-2443 (Closes: #1127905)
+  * Remove patches applied in new release
+  * Refresh patches
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sat, 14 Feb 2026 18:24:11 -0500
+
+libsoup3 (3.6.5-9) unstable; urgency=high
+
+  * SECURITY UPDATE: Out-of-bounds read
+    - debian/patches/CVE-2026-0716-pre1.patch: websocket: do not
+      accept messages frames after closing due to an error
+    - debian/patches/CVE-2026-0716.patch: websocket: Fix out-of-bounds
+      read in process_frame
+      - CVE-2026-0716 (Closes: #1125156)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 03 Feb 2026 17:00:07 -0500
 
 libsoup3 (3.6.5-8) unstable; urgency=high
 

@@ -34,13 +34,13 @@
  *
  * Soup session state object.
  *
- * #SoupSession is the object that controls client-side HTTP. A
- * #SoupSession encapsulates all of the state that libsoup is keeping
+ * [class@Session] is the object that controls client-side HTTP. A
+ * [class@Session] encapsulates all of the state that libsoup is keeping
  * on behalf of your program; cached HTTP connections, authentication
  * information, etc. It also keeps track of various global options
  * and features that you are using.
  *
- * Most applications will only need a single #SoupSession; the primary
+ * Most applications will only need a single [class@Session]; the primary
  * reason you might need multiple sessions is if you need to have
  * multiple independent authentication contexts. (Eg, you are
  * connecting to a server and authenticating as two different users at
@@ -49,7 +49,7 @@
  * one session for the first user, and a second session for the other
  * user.)
  *
- * Additional #SoupSession functionality is provided by
+ * Additional [class@Session] functionality is provided by
  * [iface@SessionFeature] objects, which can be added to a session with
  * [method@Session.add_feature] or [method@Session.add_feature_by_type]
  * For example, [class@Logger] provides support for
@@ -61,7 +61,7 @@
  *
  * All `SoupSession`s are created with a [class@AuthManager], and support
  * for %SOUP_TYPE_AUTH_BASIC and %SOUP_TYPE_AUTH_DIGEST. Additionally,
- * sessions using the plain #SoupSession class (rather than one of its deprecated
+ * sessions using the plain [class@Session] class (rather than one of its deprecated
  * subtypes) have a [class@ContentDecoder] by default.
  *
  * Note that all async methods will invoke their callbacks on the thread-default
@@ -162,7 +162,7 @@ static GParamSpec *properties[LAST_PROPERTY] = { NULL, };
  * @SOUP_SESSION_ERROR_MESSAGE_ALREADY_IN_QUEUE: the message is already in the
  *   session queue. Messages can only be reused after unqueued.
  *
- * A #SoupSession error.
+ * A [class@Session] error.
  */
 G_DEFINE_QUARK (soup-session-error-quark, soup_session_error)
 
@@ -408,8 +408,7 @@ socket_props_changed (SoupSession *session)
 	if (!priv->socket_props)
 		return;
 
-	soup_socket_properties_unref (priv->socket_props);
-	priv->socket_props = NULL;
+	g_clear_pointer (&priv->socket_props, soup_socket_properties_unref);
 	soup_session_ensure_socket_props (session);
 }
 
@@ -516,7 +515,7 @@ soup_session_get_property (GObject *object, guint prop_id,
 /**
  * soup_session_new:
  *
- * Creates a #SoupSession with the default options.
+ * Creates a [class@Session] with the default options.
  *
  * Returns: (transfer full): the new session.
  */
@@ -531,7 +530,7 @@ soup_session_new (void)
  * @optname1: name of first property to set
  * @...: value of @optname1, followed by additional property/value pairs
  *
- * Creates a #SoupSession with the specified options.
+ * Creates a [class@Session] with the specified options.
  *
  * Returns: the new session.
  */
@@ -881,8 +880,7 @@ soup_session_set_user_agent (SoupSession *session,
 		return;
 
 	if (user_agent == NULL) {
-		g_free (priv->user_agent);
-		priv->user_agent = NULL;
+		g_clear_pointer (&priv->user_agent, g_free);
 	} else if (!*user_agent) {
 		if (g_strcmp0 (priv->user_agent, SOUP_SESSION_USER_AGENT_BASE) == 0)
 			return;
@@ -896,6 +894,7 @@ soup_session_set_user_agent (SoupSession *session,
 			g_free (user_agent_to_set);
 			return;
 		}
+		g_free (priv->user_agent);
 		priv->user_agent = user_agent_to_set;
 	} else {
 		if (g_strcmp0 (priv->user_agent, user_agent) == 0)
@@ -1191,7 +1190,7 @@ soup_session_requeue_item (SoupSession          *session,
  * header, and requeues it on @session. Use this when you have set
  * %SOUP_MESSAGE_NO_REDIRECT on a message, but have decided to allow a
  * particular redirection to occur, or if you want to allow a
- * redirection that #SoupSession will not perform automatically (eg,
+ * redirection that [class@Session] will not perform automatically (eg,
  * redirecting a non-safe method such as DELETE).
  *
  * If @msg's status code indicates that it should be retried as a GET
@@ -1233,8 +1232,17 @@ soup_session_redirect_message (SoupSession *session,
         /* Strip all credentials on cross-origin redirect. */
         if (!soup_uri_host_equal (soup_message_get_uri (msg), new_uri)) {
                 soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_AUTHORIZATION);
+                soup_message_headers_remove_common (soup_message_get_request_headers (msg), SOUP_HEADER_PROXY_AUTHORIZATION);
                 soup_message_set_auth (msg, NULL);
         }
+
+        /* The compression dictionary was chosen for the previous request URL and must not be
+         * carried over to the redirect target (it is origin-sensitive). Drop the hash, the id and
+         * both headers; the caller may set a new dictionary for the new URL. */
+        soup_message_set_compression_dictionary_hash (msg, NULL);
+        soup_message_set_compression_dictionary_id (msg, NULL);
+        soup_message_headers_remove (soup_message_get_request_headers (msg), "Available-Dictionary");
+        soup_message_headers_remove (soup_message_get_request_headers (msg), "Dictionary-ID");
 
         soup_message_set_request_host_from_uri (msg, new_uri);
 	soup_message_set_uri (msg, new_uri);
@@ -1381,6 +1389,7 @@ soup_session_append_queue_item (SoupSession        *session,
 {
 	SoupSessionPrivate *priv = soup_session_get_instance_private (session);
 	SoupMessageQueueItem *item;
+	GPtrArray *queue_features = NULL;
 	GSList *f;
 
         soup_message_set_metrics_timestamp (msg, SOUP_MESSAGE_METRICS_FETCH_START);
@@ -1415,9 +1424,17 @@ soup_session_append_queue_item (SoupSession        *session,
 	for (f = priv->features; f; f = g_slist_next (f)) {
 		SoupSessionFeature *feature = SOUP_SESSION_FEATURE (f->data);
 
-		g_object_ref (feature);
+		if (queue_features == NULL)
+			queue_features = g_ptr_array_new_with_free_func (g_object_unref);
+		g_ptr_array_add (queue_features, g_object_ref (feature));
 		soup_session_feature_request_queued (feature, msg);
 	}
+
+	if (queue_features != NULL) {
+		g_object_set_data_full (G_OBJECT (msg), "soup-session-queued-features",
+			queue_features, (GDestroyNotify) g_ptr_array_unref);
+	}
+
 	g_signal_emit (session, signals[REQUEST_QUEUED], 0, msg);
 
 	return item;
@@ -1437,10 +1454,10 @@ soup_session_send_queue_item (SoupSession *session,
 
 	request_headers = soup_message_get_request_headers (item->msg);
 	if (priv->user_agent)
-		soup_message_headers_replace_common (request_headers, SOUP_HEADER_USER_AGENT, priv->user_agent);
+		soup_message_headers_replace_common (request_headers, SOUP_HEADER_USER_AGENT, priv->user_agent, SOUP_HEADER_VALUE_UNTRUSTED);
 
 	if (priv->accept_language && !soup_message_headers_get_list_common (request_headers, SOUP_HEADER_ACCEPT_LANGUAGE))
-		soup_message_headers_append_common (request_headers, SOUP_HEADER_ACCEPT_LANGUAGE, priv->accept_language);
+		soup_message_headers_append_common (request_headers, SOUP_HEADER_ACCEPT_LANGUAGE, priv->accept_language, SOUP_HEADER_VALUE_UNTRUSTED);
 
         conn = soup_message_get_connection (item->msg);
         soup_message_set_http_version (item->msg, soup_connection_get_negotiated_protocol (conn));
@@ -1472,7 +1489,7 @@ soup_session_unqueue_item (SoupSession          *session,
 			   SoupMessageQueueItem *item)
 {
 	SoupSessionPrivate *priv = soup_session_get_instance_private (session);
-	GSList *f;
+	GPtrArray *queued_features;
 
         soup_message_set_connection (item->msg, NULL);
 
@@ -1497,11 +1514,15 @@ soup_session_unqueue_item (SoupSession          *session,
 	g_signal_handlers_disconnect_matched (item->msg, G_SIGNAL_MATCH_DATA,
 					      0, 0, NULL, NULL, item);
 
-	for (f = priv->features; f; f = g_slist_next (f)) {
-		SoupSessionFeature *feature = SOUP_SESSION_FEATURE (f->data);
+	queued_features = g_object_get_data (G_OBJECT (item->msg), "soup-session-queued-features");
+	if (queued_features) {
+		guint ii;
 
-		soup_session_feature_request_unqueued (feature, item->msg);
-		g_object_unref (feature);
+		for (ii = 0; ii < queued_features->len; ii++) {
+			SoupSessionFeature *feature = SOUP_SESSION_FEATURE (g_ptr_array_index (queued_features, ii));
+
+			soup_session_feature_request_unqueued (feature, item->msg);
+		}
 	}
 	g_signal_emit (session, signals[REQUEST_UNQUEUED], 0, item->msg);
 	soup_message_queue_item_unref (item);
@@ -1800,6 +1821,21 @@ soup_session_process_queue_item (SoupSession          *session,
 		if (item->paused)
 			return;
 
+		/* The cancellable may have been cancelled from a handler run while
+		 * the item was being queued, such as SoupHSTSEnforcer::hsts-enforced.
+		 * Nothing between request-queued and the write checks it, so check
+		 * here while the message can still be stopped.
+		 */
+		if ((item->state == SOUP_MESSAGE_STARTING ||
+		     item->state == SOUP_MESSAGE_CONNECTED ||
+		     item->state == SOUP_MESSAGE_READY) &&
+		    g_cancellable_is_cancelled (item->cancellable)) {
+			session_debug (item, "Cancelled before sending");
+			if (!item->error)
+				g_cancellable_set_error_if_cancelled (item->cancellable, &item->error);
+			item->state = SOUP_MESSAGE_FINISHING;
+		}
+
 		switch (item->state) {
 		case SOUP_MESSAGE_STARTING:
 			if (!soup_session_ensure_item_connection (session, item))
@@ -1834,7 +1870,13 @@ soup_session_process_queue_item (SoupSession          *session,
 			soup_session_send_queue_item (session, item,
 						      (SoupMessageIOCompletionFn)message_completed);
 
-			if (item->async)
+                        /* soup_session_send_queue_item may invoke the completion
+                         * callback synchronously (e.g. when io_data is NULL after
+                         * a broken HTTP/2 session), which changes item->state away
+                         * from RUNNING before we return.  Only enter the async read
+                         * loop when the item is still actually running.
+                         */
+			if (item->async && item->state == SOUP_MESSAGE_RUNNING)
 				async_send_request_running (session, item);
 			return;
 
@@ -2075,7 +2117,7 @@ feature_already_added (SoupSession *session, GType feature_type)
  * Adds @feature's functionality to @session. You cannot add multiple
  * features of the same [alias@GObject.Type] to a session.
  *
- * See the main #SoupSession documentation for information on what
+ * See the main [class@Session] documentation for information on what
  * features are present in sessions by default.
  **/
 void
@@ -2110,7 +2152,7 @@ soup_session_add_feature (SoupSession *session, SoupSessionFeature *feature)
  * existing feature on @session the chance to accept @feature_type as
  * a "subfeature". This can be used to add new [class@Auth] types, for instance.
  *
- * See the main #SoupSession documentation for information on what
+ * See the main [class@Session] documentation for information on what
  * features are present in sessions by default.
  **/
 void
@@ -2582,7 +2624,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 	 * enclosed in parentheses, between or after the tokens.
 	 *
 	 * If you set a [property@Session:user-agent] property that has trailing
-	 * whitespace, #SoupSession will append its own product token
+	 * whitespace, [class@Session] will append its own product token
 	 * (eg, `libsoup/2.3.2`) to the end of the
 	 * header for you.
 	 **/
@@ -2613,7 +2655,7 @@ soup_session_class_init (SoupSessionClass *session_class)
 	/**
 	 * SoupSession:accept-language-auto: (attributes org.gtk.Property.get=soup_session_get_accept_language_auto org.gtk.Property.set=soup_session_set_accept_language_auto)
 	 *
-	 * If %TRUE, #SoupSession will automatically set the string
+	 * If %TRUE, [class@Session] will automatically set the string
 	 * for the "Accept-Language" header on every [class@Message]
 	 * sent, based on the return value of [func@GLib.get_language_names].
 	 *
@@ -2718,8 +2760,7 @@ async_send_request_return_result (SoupMessageQueueItem *item,
 	g_signal_handlers_disconnect_matched (item->msg, G_SIGNAL_MATCH_DATA,
 					      0, 0, NULL, NULL, item);
 
-	task = item->task;
-	item->task = NULL;
+	task = g_steal_pointer (&item->task);
 
         /* This cancellable was set for the send operation that is done now */
         g_object_unref (item->cancellable);
@@ -2880,8 +2921,10 @@ run_until_read_done (SoupMessage          *msg,
 		if (soup_message_io_in_progress (msg))
 			soup_message_io_finished (msg);
 		item->paused = FALSE;
-		item->state = SOUP_MESSAGE_FINISHING;
-		soup_session_process_queue_item (item->session, item, FALSE);
+		if (item->state != SOUP_MESSAGE_FINISHED) {
+			item->state = SOUP_MESSAGE_FINISHING;
+			soup_session_process_queue_item (item->session, item, FALSE);
+		}
 	}
 	async_send_request_return_result (item, NULL, error);
         soup_message_queue_item_unref (item);
@@ -2974,9 +3017,11 @@ conditional_get_ready_cb (SoupSession               *session,
 		soup_cache_cancel_conditional_request (data->cache, data->conditional_msg);
 		cancel_cache_response (data->item);
 		async_cache_conditional_data_free (data);
+		g_clear_error (&error);
 		return;
 	}
 	g_object_unref (stream);
+	g_clear_error (&error);
 
 	soup_cache_update_from_conditional_request (data->cache, data->conditional_msg);
 
@@ -3297,8 +3342,7 @@ soup_session_send (SoupSession   *session,
 			stream = NULL;
 			break;
 		}
-		g_object_unref (stream);
-		stream = NULL;
+		g_clear_object (&stream);
 
 		/* If the message was requeued, loop */
 		if (item->state == SOUP_MESSAGE_RESTARTING) {

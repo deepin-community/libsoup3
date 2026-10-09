@@ -80,28 +80,36 @@ endif
 tests = [
   {'name': 'cache'},
   {'name': 'chunk-io'},
-  {'name': 'coding'},
+  {'name': 'coding',
+   'dependencies': [brotlienc_dep, libzstd_dep],
+   'c_args': ['-DWITH_BROTLI_ENC=@0@'.format(brotlienc_dep.found() ? 1 : 0),
+              '-DWITH_ZSTD_ENC=@0@'.format(libzstd_dep.found() ? 1 : 0)]},
   {'name': 'context'},
   {'name': 'continue'},
-  {'name': 'cookies'},
+  {'name': 'cookies',
+   'dependencies': [sqlite_dep]},
   {'name': 'date'},
+  {'name': 'digest-nonce-replay'},
   {'name': 'forms'},
   {'name': 'header-parsing'},
-  {'name': 'http2'},
-  {'name': 'http2-body-stream'},
+  {'name': 'http2', 'slow': true},
+  {'name': 'http2-body-stream', 'slow': true},
   {'name': 'hsts'},
   {'name': 'hsts-db'},
-  {'name': 'logger'},
+  {'name': 'logger', 'slow': true},
   {'name': 'misc'},
   {'name': 'multipart'},
   {'name': 'multithread'},
+  {'name': 'proxy-auth-cache', 'parallel': false},
   {'name': 'no-ssl'},
   {'name': 'ntlm'},
+  {'name': 'range', 'parallel': false},
   {'name': 'redirect'},
   {'name': 'request-body'},
   {'name': 'samesite'},
   {'name': 'session'},
   {'name': 'server-auth'},
+  {'name': 'server-mem-limit'},
   {'name': 'server'},
   {'name': 'sniffing',
     'depends': [test_resources],
@@ -115,22 +123,35 @@ tests = [
    ]
   },
   {'name': 'streaming'},
-  {'name': 'timeout'},
+  {'name': 'timeout', 'slow': true},
   {'name': 'tld'},
   {'name': 'uri-parsing'},
   {'name': 'websocket',
-   'dependencies': [libz_dep]},
+   'dependencies': [libz_dep],
+   'slow': true},
 ]
 
-if brotlidec_dep.found()
-  tests += [{'name': 'brotli-decompressor'}]
+if brotlidec_dep.found() or libzstd_dep.found()
+  tests += [{'name': 'decompressor'}]
 
   if installed_tests_enabled
-    install_data(
-      'brotli-data/compressed.br',
-      'brotli-data/corrupt.br',
-      'brotli-data/uncompressed.txt',
-      install_dir : join_paths(installed_tests_execdir, 'brotli-data'),
+    compressed_data_files = [
+      'compressed-data/uncompressed.txt',
+    ]
+    if brotlidec_dep.found()
+      compressed_data_files += [
+        'compressed-data/compressed.br',
+        'compressed-data/corrupt.br',
+      ]
+    endif
+    if libzstd_dep.found()
+      compressed_data_files += [
+        'compressed-data/compressed.zst',
+        'compressed-data/corrupt.zst',
+      ]
+    endif
+    install_data(compressed_data_files,
+      install_dir : join_paths(installed_tests_execdir, 'compressed-data'),
     )
   endif
 endif
@@ -146,7 +167,6 @@ if have_apache
   tests += [
     {'name': 'auth', 'parallel': false},
     {'name': 'connection', 'parallel': false},
-    {'name': 'range', 'parallel': false},
     {'name': 'proxy', 'parallel': false},
   ]
 
@@ -178,14 +198,13 @@ env.set('G_TEST_SRCDIR', meson.current_source_dir())
 env.set('G_TEST_BUILDDIR', meson.current_build_dir())
 env.set('G_DEBUG', 'gc-friendly')
 # See https://github.com/mesonbuild/meson/issues/1383 for the workaround below
-env.prepend('LD_LIBRARY_PATH', meson.build_root() + '/libsoup')
+env.prepend('LD_LIBRARY_PATH', meson.project_build_root() + '/libsoup')
 env.set('MALLOC_CHECK_', '2')
 # This is set by Meson if empty
 env.set('MALLOC_PERTURB_', '')
+env.set('LSAN_OPTIONS', 'suppressions=@0@/.gitlab-ci/leak_suppressions'.format(meson.project_source_root()))
 
-if meson.version().version_compare('>= 0.58.0')
-  meson.add_devenv(env)
-endif
+meson.add_devenv(env)
 
 if have_autobahn
    subdir('autobahn')
@@ -219,14 +238,13 @@ foreach test: tests
     install_dir : installed_tests_execdir,
     install_rpath : abs_installed_tests_execdir,
   )
-  # Increase the timeout as on some architectures the tests could be slower
-  # than the default 30 seconds.
+
   test(test_name, test_target,
     args : ['--debug'],
     env : env,
     is_parallel : test.get('parallel', true),
     depends : test.get('depends', []),
-    timeout : 60,
+    timeout : test.get('slow', false) ? 300 : 30,
     protocol : 'tap',
   )
 endforeach

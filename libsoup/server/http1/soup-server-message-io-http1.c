@@ -79,8 +79,7 @@ soup_message_io_http1_free (SoupMessageIOHTTP1 *msg_io)
 
         if (msg_io->unpause_source) {
                 g_source_destroy (msg_io->unpause_source);
-                g_source_unref (msg_io->unpause_source);
-                msg_io->unpause_source = NULL;
+                g_clear_pointer (&msg_io->unpause_source, g_source_unref);
         }
 
         g_clear_object (&msg_io->msg);
@@ -258,6 +257,8 @@ handle_partial_get (SoupServerMessage *msg)
                                                            &ranges, &nranges);
         if (status == SOUP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE) {
                 soup_server_message_set_status (msg, status, NULL);
+                soup_message_headers_set_content_range_unsatisfied (response_headers,
+                                                                   response_body->length);
                 soup_message_body_truncate (response_body);
                 return;
         } else if (status != SOUP_STATUS_PARTIAL_CONTENT)
@@ -305,7 +306,7 @@ handle_partial_get (SoupServerMessage *msg)
                         if (content_type) {
                                 soup_message_headers_append_common (part_headers,
                                                                     SOUP_HEADER_CONTENT_TYPE,
-                                                                    content_type);
+                                                                    content_type, SOUP_HEADER_VALUE_TRUSTED);
                         }
                         soup_message_headers_set_content_range (part_headers,
                                                                 ranges[i].start,
@@ -426,6 +427,19 @@ io_write (SoupServerMessageIOHTTP1 *server_io,
                          * server did not set an error.
                          */
                         soup_server_message_set_status (msg, SOUP_STATUS_CONTINUE, NULL);
+                } else if (io->read_state == SOUP_MESSAGE_IO_STATE_BLOCKING &&
+                           !SOUP_STATUS_IS_INFORMATIONAL (status_code)) {
+                        /* The client requested "Expect: 100-continue" but the
+                         * server is sending a final response without reading
+                         * the request body. The client may already have sent
+                         * that body (RFC 9110 permits sending it without
+                         * waiting), and those undrained bytes must not be
+                         * parsed as the next request on a reused connection.
+                         * Force the connection closed, per RFC 9112.
+                         */
+                        soup_message_headers_replace_common (soup_server_message_get_response_headers (msg),
+                                                             SOUP_HEADER_CONNECTION, "close",
+                                                             SOUP_HEADER_VALUE_TRUSTED);
                 }
 
                 if (!io->write_buf->len)
@@ -615,6 +629,26 @@ parse_connect_authority (const char *req_path)
 	return uri;
 }
 
+/* RFC 9110 defines Host as "uri-host [ ":" port ]", so it never carries a
+ * path, query, fragment or userinfo. Reject values holding characters that
+ * would let the constructed request URI be reinterpreted: "?" and "#" shift
+ * the path and query, and "@" moves the host itself, since everything before
+ * it parses as userinfo. Either way a proxy and this server would disagree
+ * about what was requested.
+ */
+static gboolean
+req_host_is_valid (const char *host)
+{
+        const char *p;
+
+        for (p = host; *p; p++) {
+                if ((guchar)*p <= ' ' || strchr ("/?#\\%@", *p))
+                        return FALSE;
+        }
+
+        return TRUE;
+}
+
 static guint
 parse_headers (SoupServerMessage *msg,
                char              *headers,
@@ -654,9 +688,17 @@ parse_headers (SoupServerMessage *msg,
                         return SOUP_STATUS_BAD_REQUEST;
         }
 
+        /* A server MAY reject a request that contains both Content-Length and
+         * Transfer-Encoding or process such a request in accordance with the
+         * Transfer-Encoding alone. Regardless, the server MUST close the connection
+         * after responding to such a request to avoid the potential attacks
+         */
+        if (*encoding == SOUP_ENCODING_CHUNKED && soup_message_headers_get_one_common (request_headers, SOUP_HEADER_CONTENT_LENGTH))
+                soup_message_headers_replace_common (request_headers, SOUP_HEADER_CONNECTION, "close", SOUP_HEADER_VALUE_TRUSTED);
+
         /* Generate correct context for request */
         req_host = soup_message_headers_get_one_common (request_headers, SOUP_HEADER_HOST);
-        if (req_host && strchr (req_host, '/')) {
+        if (req_host && !req_host_is_valid (req_host)) {
                 g_free (req_path);
                 return SOUP_STATUS_BAD_REQUEST;
         }
@@ -763,7 +805,7 @@ io_read (SoupServerMessageIOHTTP1 *server_io,
                          * closed when we're done.
                          */
                         soup_server_message_set_status (msg, status, NULL);
-                        soup_message_headers_append_common (request_headers, SOUP_HEADER_CONNECTION, "close");
+                        soup_message_headers_append_common (request_headers, SOUP_HEADER_CONNECTION, "close", SOUP_HEADER_VALUE_TRUSTED);
                         io->read_state = SOUP_MESSAGE_IO_STATE_FINISHING;
                         break;
                 }
@@ -819,8 +861,20 @@ io_read (SoupServerMessageIOHTTP1 *server_io,
                         break;
                 }
 
-                if (nread == -1)
-                        return FALSE;
+                if (nread == -1) {
+                        if (g_error_matches (*error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT) || g_error_matches (*error, G_IO_ERROR, G_IO_ERROR_PARTIAL_INPUT))
+                                soup_server_message_set_status (msg, 400, NULL);
+                        else if (g_error_matches (*error, G_IO_ERROR, G_IO_ERROR_MESSAGE_TOO_LARGE))
+                                soup_server_message_set_status (msg, 413, NULL);
+                        else
+                                return FALSE;
+
+                        g_clear_error (error);
+                        request_headers = soup_server_message_get_request_headers (msg);
+                        soup_message_headers_append_common (request_headers, SOUP_HEADER_CONNECTION, "close", SOUP_HEADER_VALUE_TRUSTED);
+                        io->read_state = SOUP_MESSAGE_IO_STATE_FINISHING;
+                        break;
+                }
 
                 /* else nread == 0 */
                 io->read_state = SOUP_MESSAGE_IO_STATE_BODY_DONE;
@@ -918,8 +972,7 @@ io_run (SoupServerMessageIOHTTP1 *server_io)
 
         if (io->io_source) {
                 g_source_destroy (io->io_source);
-                g_source_unref (io->io_source);
-                io->io_source = NULL;
+                g_clear_pointer (&io->io_source, g_source_unref);
         }
 
         g_object_ref (msg);

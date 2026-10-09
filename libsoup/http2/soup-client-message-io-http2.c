@@ -103,6 +103,9 @@ typedef struct {
         GByteArray *data_source_buffer;
         GError *data_source_error;
         gboolean data_source_eof;
+        GCancellable *data_source_cancellable;
+        GCancellable *data_source_message_cancellable;
+        gulong data_source_cancellable_id;
 
         SoupClientMessageIOHTTP2 *io; /* Unowned */
         SoupMessageIOCompletionFn completion_cb;
@@ -114,56 +117,11 @@ typedef struct {
         guint32 stream_id;
         gboolean can_be_restarted;
         gboolean expect_continue;
+        GSource *check_status_idle_source;
 } SoupHTTP2MessageData;
 
 static void soup_client_message_io_http2_finished (SoupClientMessageIO *iface, SoupMessage *msg);
 static ssize_t on_data_source_read_callback (nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length, uint32_t *data_flags, nghttp2_data_source *source, void *user_data);
-
-#define ANSI_CODE_RESET      "\033[00m"
-#define ANSI_CODE_BOLD       "\033[1m"
-#define ANSI_CODE_DARK       "\033[2m"
-#define ANSI_CODE_UNDERLINE  "\033[4m"
-#define ANSI_CODE_BLINK      "\033[5m"
-#define ANSI_CODE_REVERSE    "\033[7m"
-#define ANSI_CODE_CONCEALED  "\033[8m"
-#define ANSI_CODE_GRAY       "\033[30m"
-#define ANSI_CODE_RED        "\033[31m"
-#define ANSI_CODE_GREEN      "\033[32m"
-#define ANSI_CODE_YELLOW     "\033[33m"
-#define ANSI_CODE_BLUE       "\033[34m"
-#define ANSI_CODE_MAGENTA    "\033[35m"
-#define ANSI_CODE_CYAN       "\033[36m"
-#define ANSI_CODE_WHITE      "\033[37m"
-#define ANSI_CODE_BG_GRAY    "\033[40m"
-#define ANSI_CODE_BG_RED     "\033[41m"
-#define ANSI_CODE_BG_GREEN   "\033[42m"
-#define ANSI_CODE_BG_YELLOW  "\033[43m"
-#define ANSI_CODE_BG_BLUE    "\033[44m"
-#define ANSI_CODE_BG_MAGENTA "\033[45m"
-#define ANSI_CODE_BG_CYAN    "\033[46m"
-#define ANSI_CODE_BG_WHITE   "\033[47m"
-
-static const char *
-id_color (guint32 id)
-{
-        switch (id % 6) {
-            case 0:
-                return ANSI_CODE_RED;
-            case 1:
-                return ANSI_CODE_GREEN;
-            case 2:
-                return ANSI_CODE_YELLOW;
-            case 3:
-                return ANSI_CODE_BLUE;
-            case 4:
-                return ANSI_CODE_MAGENTA;
-            case 5:
-                return ANSI_CODE_CYAN;
-        }
-
-        g_assert_not_reached ();
-        return "";
-}
 
 G_GNUC_PRINTF(3, 0)
 static void
@@ -187,7 +145,7 @@ h2_debug (SoupClientMessageIOHTTP2   *io,
                 stream_id = data->stream_id;
 
         g_assert (io);
-        g_log (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, "[CLIENT] [%sC%" G_GUINT64_FORMAT "%s-%sS%u%s] [%s] %s", id_color (io->connection_id), io->connection_id, ANSI_CODE_RESET, id_color (stream_id), stream_id, ANSI_CODE_RESET, data ? soup_http2_io_state_to_string (data->state) : "-", message);
+        g_log (G_LOG_DOMAIN, G_LOG_LEVEL_DEBUG, "[CLIENT] [C%" G_GUINT64_FORMAT "-S%u] [%s] %s", io->connection_id, stream_id, data ? soup_http2_io_state_to_string (data->state) : "-", message);
 
         g_free (message);
 }
@@ -293,12 +251,27 @@ soup_http2_message_data_can_be_restarted (SoupHTTP2MessageData *data,
 }
 
 static void
+soup_http2_message_data_destroy_check_status_idle_source (SoupHTTP2MessageData *data)
+{
+        if (!data->check_status_idle_source)
+                return;
+
+        g_source_destroy (data->check_status_idle_source);
+        g_clear_pointer (&data->check_status_idle_source, g_source_unref);
+}
+
+static void
 soup_http2_message_data_check_status (SoupHTTP2MessageData *data)
 {
         SoupClientMessageIOHTTP2 *io = data->io;
         SoupMessage *msg = data->msg;
         GTask *task = data->task;
         GError *error = NULL;
+
+        soup_http2_message_data_destroy_check_status_idle_source (data);
+
+        if (!task)
+                return;
 
         if (g_cancellable_set_error_if_cancelled (g_task_get_cancellable (task), &error)) {
                 io->pending_io_messages = g_list_remove (io->pending_io_messages, data);
@@ -341,6 +314,27 @@ soup_http2_message_data_check_status (SoupHTTP2MessageData *data)
         data->task = NULL;
         g_task_return_boolean (task, TRUE);
         g_object_unref (task);
+}
+
+static gboolean
+check_status_idle_source_cb (SoupHTTP2MessageData *data)
+{
+        g_clear_pointer (&data->check_status_idle_source, g_source_unref);
+        soup_http2_message_data_check_status (data);
+        return G_SOURCE_REMOVE;
+}
+
+static void
+soup_http2_message_data_check_status_in_idle (SoupHTTP2MessageData *data)
+{
+        if (data->check_status_idle_source)
+                return;
+
+        data->check_status_idle_source = g_idle_source_new ();
+        g_source_set_static_name (data->check_status_idle_source, "Soup HTTP/2 check message data status");
+        g_source_set_priority (data->check_status_idle_source, G_PRIORITY_DEFAULT);
+        g_source_set_callback (data->check_status_idle_source, (GSourceFunc)check_status_idle_source_cb, data, NULL);
+        g_source_attach (data->check_status_idle_source, g_main_context_get_thread_default ());
 }
 
 static gboolean
@@ -510,14 +504,8 @@ io_read_ready (GObject                  *stream,
         if (conn)
                 soup_connection_set_in_use (conn, TRUE);
 
-        while (progress && nghttp2_session_want_read (io->session)) {
+        while (progress && nghttp2_session_want_read (io->session))
                 progress = io_read (io, FALSE, NULL, &error);
-                if (progress) {
-                        g_list_foreach (io->pending_io_messages,
-                                        (GFunc)soup_http2_message_data_check_status,
-                                        NULL);
-                }
-        }
 
         if (g_error_matches (error, G_IO_ERROR, G_IO_ERROR_WOULD_BLOCK)) {
                 g_error_free (error);
@@ -578,10 +566,19 @@ io_try_sniff_content (SoupHTTP2MessageData *data,
         if (data->in_io_try_sniff_content)
                 return;
 
+        /* Don't read the body while paused (e.g. waiting for a compression
+         * dictionary to be resolved). Sniffing reads through the content
+         * decoder, which must not be fed data before it is ready. The sniff is
+         * retried from soup_client_message_io_http2_unpause(). */
+        if (data->paused)
+                return;
+
         if (message_has_content_length_zero (data->msg)) {
                 sniff_for_empty_response (data->msg);
                 h2_debug (data->io, data, "[DATA] Sniffed content (Content-Length was 0)");
                 advance_state_from (data, STATE_READ_DATA_START, STATE_READ_DATA);
+                if (data->item->async)
+                        soup_http2_message_data_check_status_in_idle (data);
                 return;
         }
 
@@ -590,6 +587,8 @@ io_try_sniff_content (SoupHTTP2MessageData *data,
         if (soup_message_try_sniff_content (data->msg, data->decoded_data_istream, blocking, cancellable, &error)) {
                 h2_debug (data->io, data, "[DATA] Sniffed content");
                 advance_state_from (data, STATE_READ_DATA_START, STATE_READ_DATA);
+                if (data->item->async)
+                        soup_http2_message_data_check_status_in_idle (data);
         } else {
                 h2_debug (data->io, data, "[DATA] Sniffer stream was not ready %s", error->message);
 
@@ -669,17 +668,57 @@ on_invalid_header_callback (nghttp2_session     *session,
 
 static GError *
 memory_stream_need_more_data_callback (SoupBodyInputStreamHttp2 *stream,
-                                       gboolean                  blocking,
                                        GCancellable             *cancellable,
                                        gpointer                  user_data)
 {
         SoupHTTP2MessageData *data = (SoupHTTP2MessageData*)user_data;
         GError *error = NULL;
 
+        if (data->in_io_try_sniff_content)
+                return NULL;
+
         if (nghttp2_session_want_read (data->io->session))
-                io_read (data->io, blocking, cancellable, &error);
+                io_read (data->io, TRUE, cancellable, &error);
 
         return error;
+}
+
+static void
+memory_stream_read_data (SoupBodyInputStreamHttp2 *stream,
+                         guint64                   bytes_read,
+                         gpointer                  user_data)
+{
+        SoupHTTP2MessageData *data = (SoupHTTP2MessageData*)user_data;
+
+        h2_debug (data->io, data, "[BODY_STREAM] Consumed %" G_GUINT64_FORMAT " bytes", bytes_read);
+
+        NGCHECK (nghttp2_session_consume(data->io->session, data->stream_id, (size_t)bytes_read));
+        io_try_write (data->io, !data->item->async);
+}
+
+static void
+soup_http2_message_data_consume_buffered_body (SoupHTTP2MessageData *data)
+{
+        gsize buffered;
+        gssize skipped;
+        GError *error = NULL;
+
+        if (!data->body_istream)
+                return;
+
+        buffered = soup_body_input_stream_http2_get_buffer_size (SOUP_BODY_INPUT_STREAM_HTTP2 (data->body_istream));
+        if (!buffered)
+                return;
+
+        skipped = g_input_stream_skip (data->body_istream, buffered, NULL, &error);
+        if (skipped < 0) {
+                h2_debug (data->io, data, "[BODY_STREAM] Failed to consume %" G_GSIZE_FORMAT " buffered bytes before cancel: %s",
+                          buffered, error->message);
+                g_clear_error (&error);
+                return;
+        }
+
+        h2_debug (data->io, data, "[BODY_STREAM] Consumed %zd/%" G_GSIZE_FORMAT " buffered bytes before cancel", skipped, buffered);
 }
 
 static int
@@ -709,6 +748,8 @@ on_begin_frame_callback (nghttp2_session        *session,
                         data->body_istream = soup_body_input_stream_http2_new ();
                         g_signal_connect (data->body_istream, "need-more-data",
                                           G_CALLBACK (memory_stream_need_more_data_callback), data);
+                        g_signal_connect (data->body_istream, "read-data",
+                                          G_CALLBACK (memory_stream_read_data), data);
 
                         g_assert (!data->decoded_data_istream);
                         data->decoded_data_istream = soup_session_setup_message_body_input_stream (data->item->session,
@@ -738,13 +779,22 @@ handle_goaway (SoupClientMessageIOHTTP2 *io,
 
         g_hash_table_iter_init (&iter, io->messages);
         while (g_hash_table_iter_next (&iter, NULL, (gpointer*)&data)) {
-                /* If there is no error it is a graceful shutdown and
-                 * existing messages can be handled otherwise it is a fatal error */
-                if ((error_code == 0 && (int32_t)data->stream_id > last_stream_id) ||
-                     data->state < STATE_READ_DONE) {
-                        /* TODO: We can restart unfinished messages */
+                if ((int32_t)data->stream_id > last_stream_id) {
+                        /* RFC-9113 §6.8: stream was not processed by the server,
+                         * it can be retried on a new connection regardless of error_code. */
+                        data->can_be_restarted = TRUE;
+                        set_http2_error_for_data (data, error_code);
+                } else if (error_code != NGHTTP2_NO_ERROR) {
+                        /* Stream might have been processed by the server but connection is dying with an error.
+                         * Fail explicitly to avoid hanging indefinitely if the server is slow or fails
+                         * to close the TCP connection (which it MUST do per §5.4.1).
+                         * Per §6.8 only idempotent methods may be retried for processed streams. */
+                        if (SOUP_METHOD_IS_IDEMPOTENT (soup_message_get_method (data->msg)))
+                                data->can_be_restarted = TRUE;
                         set_http2_error_for_data (data, error_code);
                 }
+                 /* else: Graceful shutdown (NO_ERROR) and the server might have processed this stream.
+                  * Per §6.8 it might still complete successfully, let it finish normally. */
         }
 }
 
@@ -763,10 +813,11 @@ on_frame_recv_callback (nghttp2_session     *session,
 
                 switch (frame->hd.type) {
                 case NGHTTP2_GOAWAY:
-                        h2_debug (io, NULL, "[RECV] GOAWAY: error=%s, last_stream_id=%d %s",
+                        h2_debug (io, NULL, "[RECV] GOAWAY: error=%s, last_stream_id=%d %.*s",
                                   nghttp2_http2_strerror (frame->goaway.error_code),
                                   frame->goaway.last_stream_id,
-                                  frame->goaway.opaque_data ? (char *)frame->goaway.opaque_data : "");
+                                  (int)frame->goaway.opaque_data_len,
+                                  frame->goaway.opaque_data ? (const char *)frame->goaway.opaque_data : "");
                         handle_goaway (io, frame->goaway.error_code, frame->goaway.last_stream_id);
                         io->is_shutdown = TRUE;
                         soup_client_message_io_http2_terminate_session (io);
@@ -839,6 +890,8 @@ on_frame_recv_callback (nghttp2_session     *session,
                         advance_state_from (data, STATE_READ_HEADERS, STATE_READ_DATA_START);
                         sniff_for_empty_response (data->msg);
                         advance_state_from (data, STATE_READ_DATA_START, STATE_READ_DATA);
+                        if (data->item->async)
+                                soup_http2_message_data_check_status_in_idle (data);
                 }
                 break;
         }
@@ -851,11 +904,8 @@ on_frame_recv_callback (nghttp2_session     *session,
                 if (frame->hd.flags & NGHTTP2_FLAG_END_STREAM) {
                         if (data->body_istream) {
                                 soup_body_input_stream_http2_complete (SOUP_BODY_INPUT_STREAM_HTTP2 (data->body_istream));
-                                if (data->state == STATE_READ_DATA_START) {
+                                if (data->state == STATE_READ_DATA_START)
                                         io_try_sniff_content (data, FALSE, data->item->cancellable);
-                                        if (data->state == STATE_READ_DATA && data->item->async)
-                                                soup_http2_message_data_check_status (data);
-                                }
                         }
                 } else if (nghttp2_session_get_stream_effective_recv_data_length (session, frame->hd.stream_id) == 0) {
                         io_try_write (io, !data->item->async);
@@ -1113,6 +1163,9 @@ on_stream_close_callback (nghttp2_session *session,
                 break;
         }
 
+        if (data->item->async)
+                soup_http2_message_data_check_status_in_idle (data);
+
         data->io->in_callback--;
         return 0;
 }
@@ -1182,6 +1235,14 @@ log_request_data (SoupHTTP2MessageData *data,
            rather as soon as we read it from our source which is as good
            as we can do since nghttp handles the actual io. */
         soup_logger_log_request_data (data->logger, data->msg, (const char *)buffer, len);
+}
+
+static void
+on_data_source_cancelled (GCancellable *cancellable,
+                          gpointer      data)
+{
+        GCancellable *linked_cancellable = G_CANCELLABLE (data);
+        g_cancellable_cancel (linked_cancellable);
 }
 
 static ssize_t
@@ -1283,7 +1344,7 @@ on_data_source_read_callback (nghttp2_session     *session,
         } else {
                 GInputStream *in_stream = G_INPUT_STREAM (source->ptr);
 
-                /* To support non-pollable input streams we always deffer reads
+                /* To support non-pollable input streams we always defer reads
                 * and read async into a local buffer. The next time around we will
                 * send that buffer or error.
                 */
@@ -1292,17 +1353,26 @@ on_data_source_read_callback (nghttp2_session     *session,
 
                 guint buffer_len = data->data_source_buffer->len;
                 if (buffer_len) {
-                        if (data->data_source_eof) {
-                                h2_debug (data->io, data, "[SEND_BODY] Sending %zu, EOF", buffer_len);
+                        /* nghttp2 may accept fewer bytes than we buffered, for
+                         * example after the peer shrinks the stream window with
+                         * a SETTINGS frame.
+                         */
+                        gsize to_send = MIN (buffer_len, length);
+                        gboolean partial = to_send < buffer_len;
+
+                        if (data->data_source_eof && !partial) {
+                                h2_debug (data->io, data, "[SEND_BODY] Sending %zu, EOF", to_send);
                                 *data_flags |= NGHTTP2_DATA_FLAG_EOF;
                         } else
-                                h2_debug (data->io, data, "[SEND_BODY] Sending %zu", buffer_len);
-                        g_assert (buffer_len <= length); /* QUESTION: Maybe not reliable */
-                        memcpy (buf, data->data_source_buffer->data, buffer_len);
-                        log_request_data (data, buf, buffer_len);
-                        g_byte_array_set_size (data->data_source_buffer, 0);
+                                h2_debug (data->io, data, "[SEND_BODY] Sending %zu", to_send);
+                        memcpy (buf, data->data_source_buffer->data, to_send);
+                        log_request_data (data, buf, to_send);
+                        if (partial)
+                                g_byte_array_remove_range (data->data_source_buffer, 0, to_send);
+                        else
+                                g_byte_array_set_size (data->data_source_buffer, 0);
                         data->io->in_callback--;
-                        return buffer_len;
+                        return to_send;
                 } else if (data->data_source_eof) {
                         h2_debug (data->io, data, "[SEND_BODY] EOF");
                         *data_flags |= NGHTTP2_DATA_FLAG_EOF;
@@ -1315,9 +1385,18 @@ on_data_source_read_callback (nghttp2_session     *session,
                 } else {
                         h2_debug (data->io, data, "[SEND_BODY] Reading async");
                         g_byte_array_set_size (data->data_source_buffer, length);
+                        if (!data->data_source_cancellable) {
+                                data->data_source_cancellable = g_cancellable_new ();
+                                if (data->item->cancellable) {
+                                        data->data_source_message_cancellable = g_object_ref (data->item->cancellable);
+                                        data->data_source_cancellable_id =
+                                                g_cancellable_connect (data->data_source_message_cancellable, G_CALLBACK (on_data_source_cancelled),
+                                                                       g_object_ref (data->data_source_cancellable),  g_object_unref);
+                                }
+                        }
                         g_input_stream_read_async (in_stream, data->data_source_buffer->data, length,
                                                    get_data_io_priority (data),
-                                                   data->item->cancellable,
+                                                   data->data_source_cancellable,
                                                    (GAsyncReadyCallback)on_data_read, data);
                         data->io->in_callback--;
                         return NGHTTP2_ERR_DEFERRED;
@@ -1402,8 +1481,20 @@ soup_http2_message_data_close (SoupHTTP2MessageData *data)
                 g_clear_object (&data->body_istream);
         }
 
+        if (data->data_source_message_cancellable) {
+                g_cancellable_disconnect (data->data_source_message_cancellable, data->data_source_cancellable_id);
+                data->data_source_cancellable_id = 0;
+                g_clear_object (&data->data_source_message_cancellable);
+        }
+        if (data->data_source_cancellable) {
+                g_cancellable_cancel(data->data_source_cancellable);
+                g_clear_object(&data->data_source_cancellable);
+        }
+
         if (data->msg)
                 g_signal_handlers_disconnect_by_data (data->msg, data);
+
+        soup_http2_message_data_destroy_check_status_idle_source (data);
 
         data->msg = NULL;
         data->metrics = NULL;
@@ -1567,9 +1658,14 @@ soup_client_message_io_http2_finished (SoupClientMessageIO *iface,
 
         data = get_data_for_message (io, msg);
 
+        soup_http2_message_data_destroy_check_status_idle_source (data);
+
         completion = data->state < STATE_READ_DONE ? SOUP_MESSAGE_IO_INTERRUPTED : SOUP_MESSAGE_IO_COMPLETE;
 
         h2_debug (io, data, "Finished stream %u: %s", data->stream_id, completion == SOUP_MESSAGE_IO_COMPLETE ? "completed" : "interrupted");
+
+        if (completion == SOUP_MESSAGE_IO_INTERRUPTED)
+                soup_http2_message_data_consume_buffered_body (data);
 
 	completion_cb = data->completion_cb;
 	completion_data = data->completion_data;
@@ -1639,6 +1735,12 @@ soup_client_message_io_http2_unpause (SoupClientMessageIO *iface,
                 g_warn_if_reached ();
 
         data->paused = FALSE;
+
+        /* Body data that arrived while paused was buffered but not sniffed (see
+         * io_try_sniff_content()), and won't re-trigger on_data_chunk_recv_callback().
+         * Retry sniffing now that the content decoder is ready. */
+        if (data->state == STATE_READ_DATA_START && data->decoded_data_istream)
+                io_try_sniff_content (data, FALSE, data->item->cancellable);
 
         if (data->item->async)
                 soup_http2_message_data_check_status (data);
@@ -1775,8 +1877,6 @@ io_run_until (SoupClientMessageIOHTTP2 *io,
 		return FALSE;
 	}
 
-	g_object_ref (msg);
-
 	while (progress && get_io_data (msg) == io && !data->paused && !data->error && data->state < state)
                 progress = io_run (data, cancellable, &my_error);
 
@@ -1790,7 +1890,6 @@ io_run_until (SoupClientMessageIOHTTP2 *io,
 
 	if (data->error) {
                 g_propagate_error (error, g_steal_pointer (&data->error));
-		g_object_unref (msg);
 		return FALSE;
         }
 
@@ -1798,13 +1897,11 @@ io_run_until (SoupClientMessageIOHTTP2 *io,
 		g_set_error_literal (error, G_IO_ERROR,
 				     G_IO_ERROR_CANCELLED,
 				     _("Operation was cancelled"));
-		g_object_unref (msg);
 		return FALSE;
 	}
 
 	done = data->state >= state;
 
-	g_object_unref (msg);
 	return done;
 }
 
@@ -1815,13 +1912,20 @@ soup_client_message_io_http2_run_until_read (SoupClientMessageIO  *iface,
                                              GError              **error)
 {
         SoupClientMessageIOHTTP2 *io = (SoupClientMessageIOHTTP2 *)iface;
-        SoupHTTP2MessageData *data = get_data_for_message (io, msg);
+        SoupHTTP2MessageData *data;
         GError *my_error = NULL;
 
-        if (io_run_until (io, msg, STATE_READ_DATA, cancellable, &my_error))
-                return TRUE;
+        /* Running I/O may complete or cancel the message */
+        g_object_ref (msg);
 
-        if (get_io_data (msg) == io) {
+        if (io_run_until (io, msg, STATE_READ_DATA, cancellable, &my_error)) {
+                g_object_unref (msg);
+                return TRUE;
+        }
+
+        /* The message data may have been freed while running I/O */
+        data = get_data_for_message (io, msg);
+        if (data && get_io_data (msg) == io) {
                 if (soup_http2_message_data_can_be_restarted (data, my_error))
                         data->item->state = SOUP_MESSAGE_RESTARTING;
                 else
@@ -1831,6 +1935,7 @@ soup_client_message_io_http2_run_until_read (SoupClientMessageIO  *iface,
         }
 
         g_propagate_error (error, my_error);
+        g_object_unref (msg);
 
         return FALSE;
 }
@@ -1853,7 +1958,8 @@ soup_client_message_io_http2_skip (SoupClientMessageIO *iface,
                 return TRUE;
 
         h2_debug (io, data, "Skip");
-        NGCHECK (nghttp2_submit_rst_stream (io->session, NGHTTP2_FLAG_NONE, data->stream_id, NGHTTP2_STREAM_CLOSED));
+        soup_http2_message_data_consume_buffered_body (data);
+        NGCHECK (nghttp2_submit_rst_stream (io->session, NGHTTP2_FLAG_NONE, data->stream_id, NGHTTP2_CANCEL));
         io_try_write (io, blocking);
         return TRUE;
 }
@@ -1897,8 +2003,7 @@ soup_client_message_io_http2_set_owner (SoupClientMessageIOHTTP2 *io,
         g_assert (!io->write_idle_source);
         if (io->read_source) {
                 g_source_destroy (io->read_source);
-                g_source_unref (io->read_source);
-                io->read_source = NULL;
+                g_clear_pointer (&io->read_source, g_source_unref);
         }
 
         io->async = g_main_context_is_owner (g_main_context_get_thread_default ());
@@ -2014,17 +2119,18 @@ soup_client_message_io_http2_init (SoupClientMessageIOHTTP2 *io)
         nghttp2_session_callbacks_set_on_frame_send_callback (callbacks, on_frame_send_callback);
         nghttp2_session_callbacks_set_on_stream_close_callback (callbacks, on_stream_close_callback);
 
-#ifdef HAVE_NGHTTP2_OPTION_SET_NO_RFC9113_LEADING_AND_TRAILING_WS_VALIDATION
         nghttp2_option *option;
 
         nghttp2_option_new (&option);
-        nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation (option, 1);
-        NGCHECK (nghttp2_session_client_new2 (&io->session, callbacks, io, option));
-        nghttp2_option_del (option);
-#else
-        NGCHECK (nghttp2_session_client_new (&io->session, callbacks, io));
-#endif
 
+#ifdef HAVE_NGHTTP2_OPTION_SET_NO_RFC9113_LEADING_AND_TRAILING_WS_VALIDATION
+        nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation (option, 1);
+#endif
+        nghttp2_option_set_no_auto_window_update (option, 1);
+
+        NGCHECK (nghttp2_session_client_new2 (&io->session, callbacks, io, option));
+
+        nghttp2_option_del (option);
         nghttp2_session_callbacks_del (callbacks);
 
         io->messages = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, (GDestroyNotify)soup_http2_message_data_free);

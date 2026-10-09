@@ -4,29 +4,19 @@ Subject: tests: extend timeout for http2-body-stream-test
 
 https://bugs.debian.org/1018709
 ---
- tests/meson.build | 5 +++--
- 1 file changed, 3 insertions(+), 2 deletions(-)
+ tests/meson.build | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/tests/meson.build b/tests/meson.build
-index ee118a0..6964602 100644
+index 23ab090..9a51e9e 100644
 --- a/tests/meson.build
 +++ b/tests/meson.build
-@@ -88,7 +88,8 @@ tests = [
-   {'name': 'forms'},
-   {'name': 'header-parsing'},
-   {'name': 'http2'},
--  {'name': 'http2-body-stream'},
-+  {'name': 'http2-body-stream',
-+   'timeout': 1000},
-   {'name': 'hsts'},
-   {'name': 'hsts-db'},
-   {'name': 'logger'},
-@@ -226,7 +227,7 @@ foreach test: tests
+@@ -244,7 +244,7 @@ foreach test: tests
      env : env,
      is_parallel : test.get('parallel', true),
      depends : test.get('depends', []),
--    timeout : 60,
-+    timeout : test.get('timeout', 60),
+-    timeout : test.get('slow', false) ? 300 : 30,
++    timeout : test.get('slow', false) ? 500 : 30,
      protocol : 'tap',
    )
  endforeach

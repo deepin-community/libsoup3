@@ -46,6 +46,9 @@ soup_headers_parse (const char *str, int len, SoupMessageHeaders *dest)
 	g_return_val_if_fail (str != NULL, FALSE);
 	g_return_val_if_fail (dest != NULL, FALSE);
 
+        if (len <= 0 || len > MAX_HEADERS_BUFFER_SIZE)
+                return FALSE;
+
 	/* As per RFC 2616 section 19.3, we treat '\n' as the
 	 * line terminator, and '\r', if it appears, merely as
 	 * ignorable trailing whitespace.
@@ -139,7 +142,8 @@ soup_headers_parse (const char *str, int len, SoupMessageHeaders *dest)
 		for (p = strchr (value, '\r'); p; p = strchr (p, '\r'))
 			*p = ' ';
 
-		soup_message_headers_append_untrusted_data (dest, name, value);
+		if (!soup_message_headers_append_untrusted_data (dest, name, value))
+                        goto done;
         }
 	success = TRUE;
 
@@ -240,7 +244,12 @@ soup_headers_parse_request (const char          *str,
 	if (headers >= str + len || *headers != '\n')
 		return SOUP_STATUS_BAD_REQUEST;
 
-	if (!soup_headers_parse (str, len, req_headers)) 
+	// Ensure pointer location for Request-Line end matches location of 'headers'
+	p = strchr(str, '\n');
+	if (p != headers)
+		return SOUP_STATUS_BAD_REQUEST;
+
+	if (!soup_headers_parse (str, len, req_headers))
 		return SOUP_STATUS_BAD_REQUEST;
 
 	if (soup_message_headers_get_expectations (req_headers) &
@@ -644,6 +653,45 @@ soup_header_contains (const char *header, const char *token)
 	return FALSE;
 }
 
+/**
+ * soup_header_contains_case_sensitive:
+ * @header: An HTTP header suitable for parsing with
+ *   [func@header_parse_list]
+ * @token: a token
+ *
+ * Parses @header to see if it contains the token @token (matched
+ * case-sensitively).
+ *
+ * Note that this can't be used with lists that have qvalues.
+ *
+ * Returns: whether or not @header contains @token
+ *
+ * Since: 3.8
+ **/
+gboolean
+soup_header_contains_case_sensitive (const char *header, const char *token)
+{
+	const char *end;
+	guint len;
+
+	g_return_val_if_fail (header != NULL, FALSE);
+	g_return_val_if_fail (token != NULL, FALSE);
+
+	len = strlen (token);
+
+	header = skip_delims (header, ',');
+	while (*header) {
+		end = skip_item (header, ',');
+		if (end - header == len &&
+		    !strncmp (header, token, len)) {
+			return TRUE;
+		}
+		header = skip_delims (end, ',');
+	}
+
+	return FALSE;
+}
+
 static void
 decode_quoted_string_inplace (GString *quoted_gstring)
 {
@@ -749,8 +797,7 @@ parse_param_list (const char *header, char delim, gboolean strict)
 		duplicated = g_hash_table_lookup_extended (params, item, NULL, NULL);
 
 		if (strict && duplicated) {
-			soup_header_free_param_list (params);
-			params = NULL;
+			g_clear_pointer (&params, soup_header_free_param_list);
 			g_slist_foreach (iter, (GFunc)g_free, NULL);
 			if (parsed_value)
 				g_string_free (parsed_value, TRUE);
