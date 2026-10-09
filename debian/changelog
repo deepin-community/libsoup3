@@ -21,6 +21,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
     signal with a GBytes as declared   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/d2cbaf25f81a9ce041714cf842c366c67b0b873e
+  * fix(cve): CVE-2026-103399 (unknown) - server: Close the connection
+    after an early response to Expect: 100-continue   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/1b7fee598e0f644008028ca69d1ba74de8bc7db2.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
