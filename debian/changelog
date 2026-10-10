@@ -1,3 +1,53 @@
+libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-0716
+  * fix(cve): CVE-2026-85534 (medium) - http2: Keep the message alive
+    across io_run_until in run_until_read   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/561
+  * fix(cve): CVE-2026-6324 (medium) - server: improve parsing of
+    chunked request body   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/96ac392b444d01bd5de1d1276b187c3ed49d048c
+  * fix(cve): CVE-2026-15709 (high) - websocket: Bound decompressed
+    message size during inflation   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-/issues/511
+  * fix(cve): CVE-2026-15711 (high) - websocket: Reject oversized
+    control frames   Upstream: https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/6cac7c6e123985c567bc2a2b46abc581161de757.patch
+  * fix(cve): CVE-2026-4271 (high) - server: protect message io while
+    reading and writing   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/511.patch
+  * fix(cve): CVE-2026-102556 (unknown) - websocket: Emit the pong
+    signal with a GBytes as declared   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/d2cbaf25f81a9ce041714cf842c366c67b0b873e
+  * fix(cve): CVE-2026-103399 (unknown) - server: Close the connection
+    after an early response to Expect: 100-continue   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/1b7fee598e0f644008028ca69d1ba74de8bc7db2.patch
+  * fix(cve): CVE-2026-102557 (unknown) - websocket: Cap message
+    reassembly and outgoing frames at the buffer limit   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/d7f074f8c8c90216f2476522836287c6f80fc53e.patch
+  * fix(cve): CVE-2026-102558 (unknown) - websocket: Cap incoming frame
+    payloads at what the buffer can hold   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/381a474ff437d0f7573d2bb3e8d3027260ab584f
+  * fix(cve): CVE-2026-102555 (unknown) - uri-utils: Don't treat base64
+    data URI content as a NUL-terminated string   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/e4f032268fa18f691a6c34d6adcb5b666f3e3f77.patch
+  * fix(cve): CVE-2026-12547 (low) - auth: Scope cached proxy
+    credentials to the proxy they came from   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/c683326d3b05b7b263a62f9fea62a801134755ba
+  * fix(cve): CVE-2026-3633 (low) - [PATCH] soup-message: Reject CRLF
+    injection in HTTP method   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/commit/7f2013d874f005035f2245
+    e382ec82823a439926.patch
+
+ -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
+
 libsoup3 (3.6.5-8deepin1) unstable; urgency=medium
 
   * fix build errot 
