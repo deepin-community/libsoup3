@@ -41,6 +41,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
     credentials to the proxy they came from   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/c683326d3b05b7b263a62f9fea62a801134755ba
+  * fix(cve): CVE-2026-3633 (low) - [PATCH] soup-message: Reject CRLF
+    injection in HTTP method   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/commit/7f2013d874f005035f2245
+    e382ec82823a439926.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
