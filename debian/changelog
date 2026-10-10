@@ -29,6 +29,10 @@ libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
     reassembly and outgoing frames at the buffer limit   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/d7f074f8c8c90216f2476522836287c6f80fc53e.patch
+  * fix(cve): CVE-2026-102558 (unknown) - websocket: Cap incoming frame
+    payloads at what the buffer can hold   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/381a474ff437d0f7573d2bb3e8d3027260ab584f
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 07 Aug 2026 20:34:47 +0800
 
