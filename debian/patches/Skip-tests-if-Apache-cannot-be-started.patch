@@ -1,0 +1,81 @@
+From: Tianyu Chen <sweetyfish@deepin.org>
+Date: Tue, 20 Oct 2026 20:17:08 +0800
+Subject: Skip tests if Apache cannot be started
+
+---
+ tests/test-utils.c | 14 ++++++++++----
+ tests/test-utils.h | 12 +++++++++---
+ 2 files changed, 19 insertions(+), 7 deletions(-)
+
+diff --git a/tests/test-utils.c b/tests/test-utils.c
+index 6fb09b6..e8aeb6d 100644
+--- a/tests/test-utils.c
++++ b/tests/test-utils.c
+@@ -22,7 +22,7 @@ static SoupLogger *logger;
+ static GBytes *index_buffer;
+ 
+ int debug_level;
+-gboolean expect_warning, tls_available;
++gboolean expect_warning, tls_available, apache_available;
+ static int http_debug_level;
+ 
+ static gboolean
+@@ -236,26 +236,32 @@ apache_cmd (const char *cmd)
+ 	return ok;
+ }
+ 
+-void
++gboolean
+ apache_init (void)
+ {
+ 	g_test_message ("[%f] enter %s", g_get_monotonic_time () / 1e6, G_STRFUNC);
+ 
+ 	/* Set this environment variable if you are already running a
+ 	 * suitably-configured Apache server */
+-	if (g_getenv ("SOUP_TESTS_ALREADY_RUNNING_APACHE"))
++	if (g_getenv ("SOUP_TESTS_ALREADY_RUNNING_APACHE")) {
++		apache_available = TRUE;
+ 		goto out;
++	}
+ 
+ 	server_root = soup_test_build_filename_abs (G_TEST_BUILT, "", NULL);
+ 
+ 	if (!apache_cmd ("start")) {
+ 		g_printerr ("Could not start apache\n");
+-		exit (1);
++		apache_running = FALSE;
++		apache_available = FALSE;
++		goto out;
+ 	}
+ 	apache_running = TRUE;
++	apache_available = TRUE;
+ 
+ out:
+ 	g_test_message ("[%f] leave %s", g_get_monotonic_time () / 1e6, G_STRFUNC);
++	return apache_available;
+ }
+ 
+ void
+diff --git a/tests/test-utils.h b/tests/test-utils.h
+index 91e2752..53afb4b 100644
+--- a/tests/test-utils.h
++++ b/tests/test-utils.h
+@@ -34,9 +34,15 @@ void debug_printf (int level, const char *format, ...) G_GNUC_PRINTF (2, 3);
+         } G_STMT_END                                            \
+ 
+ #ifdef HAVE_APACHE
+-void apache_init    (void);
+-void apache_cleanup (void);
+-#define SOUP_TEST_SKIP_IF_NO_APACHE
++gboolean apache_init (void);
++void apache_cleanup  (void);
++#define SOUP_TEST_SKIP_IF_NO_APACHE				\
++	G_STMT_START {						\
++		if (!apache_available) {			\
++			g_test_skip ("apache is not available");	\
++			return;					\
++		}						\
++	} G_STMT_END
+ #else
+ #define apache_init()
+ #define apache_cleanup()
