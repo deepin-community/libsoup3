@@ -1,3 +1,9 @@
+libsoup3 (3.6.5-8deepin3) unstable; urgency=medium
+
+  * Skip tests if Apache cannot be started.
+
+ -- Tianyu Chen <sweetyfish@deepin.org>  Tue, 20 Oct 2026 20:17:58 +0800
+
 libsoup3 (3.6.5-8deepin2) unstable; urgency=medium
 
   * fix(cve): CVE-2026-0716
