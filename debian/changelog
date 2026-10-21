@@ -1,3 +1,12 @@
+libsoup3 (3.6.5-8deepin4) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-102560 (unknown) - websocket: Bound outgoing
+    permessage-deflate buffer growth   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/dbd0417ea3a569135e9a9344b7812076b7b178f1
+
+ -- lichenggang <lichenggang@uniontech.com>  Thu, 22 Oct 2026 21:52:40 +0800
+
 libsoup3 (3.6.5-8deepin3) unstable; urgency=medium
 
   * Skip tests if Apache cannot be started.
