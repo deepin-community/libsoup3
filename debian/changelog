@@ -24,6 +24,10 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
     underflow when less data than the boundary is buffered   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/f973bd140d5c9742a8db573b950c43cf5166ac1c
+  * fix(cve): CVE-2026-15713 (medium) - cache: Reject caching
+    authenticated responses in shared caches   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/24fb645fa949ece7d7e10363b77cf2d5fa2c2469
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
