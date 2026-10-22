@@ -17,6 +17,9 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
     /commit/96ac392b444d01bd5de1d1276b187c3ed49d048c,https://gitlab.gnom
     e.org/GNOME/libsoup/-
     /commit/875e34cf70968ac2fcf210e8ebf4b7021999b3e5
+  * fix(cve): CVE-2026-12478 (medium) - websocket: Fix out-of-bounds
+    read when reading unmasked frame   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/518
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
