@@ -7,6 +7,10 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
   * fix(cve): CVE-2026-77680 (medium) - message-headers: Fix Range
     parsing overflows and coalescing cost   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/550.patch
+  * fix(cve): CVE-2026-15714 (medium) - multipart: Fix out-of-bounds
+    read in case of an excessively long boundary   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/79a52cadc490360e249cc2b23038d532b44dbf23.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
