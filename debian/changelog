@@ -4,6 +4,9 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
     Authorization through an established tunnel   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/6ed1711ae498f91c78fc12d960f1298c32c5d01d
+  * fix(cve): CVE-2026-77680 (medium) - message-headers: Fix Range
+    parsing overflows and coalescing cost   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/550.patch
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
