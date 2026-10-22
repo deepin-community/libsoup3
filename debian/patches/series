@@ -51,3 +51,4 @@ CVE-2026-3633.patch
 Skip-tests-if-Apache-cannot-be-started.patch
 CVE-2026-102560.patch
 CVE-2026-66339.patch
+CVE-2026-77680.patch
