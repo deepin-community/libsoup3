@@ -1,3 +1,12 @@
+libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-66339 (medium) - auth: Don't send Proxy-
+    Authorization through an established tunnel   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/6ed1711ae498f91c78fc12d960f1298c32c5d01d
+
+ -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
+
 libsoup3 (3.6.5-8deepin4) unstable; urgency=medium
 
   * fix(cve): CVE-2026-102560 (unknown) - websocket: Bound outgoing
