@@ -20,6 +20,10 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
   * fix(cve): CVE-2026-12478 (medium) - websocket: Fix out-of-bounds
     read when reading unmasked frame   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-/merge_requests/518
+  * fix(cve): CVE-2026-66337 (medium) - filter-input-stream: Fix
+    underflow when less data than the boundary is buffered   Upstream:
+    https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/f973bd140d5c9742a8db573b950c43cf5166ac1c
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
