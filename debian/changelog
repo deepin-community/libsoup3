@@ -28,6 +28,9 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
     authenticated responses in shared caches   Upstream:
     https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/24fb645fa949ece7d7e10363b77cf2d5fa2c2469
+  * fix(cve): CVE-2026-12548 (medium) - Set a maximum size for the
+    headers buffer   Upstream: https://gitlab.gnome.org/GNOME/libsoup/-
+    /commit/7334c38f1f6aa5e64207cb415cf2509838c52b37
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
