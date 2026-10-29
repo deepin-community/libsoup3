@@ -43,6 +43,10 @@ libsoup3 (3.6.5-8deepin5) unstable; urgency=medium
   * fix(cve): CVE-2026-3099 (medium) - auth-domain-digest: Check nonce
     validity   Upstream: https://gitlab.gnome.org/GNOME/libsoup/-
     /commit/437c5d45daba48aa23b408dc9ac16d8b9ffdd64f.patch
+  * fix(cve): CVE-2026-15712 (medium) - http2: Don't assume that GOAWAY
+    opaque data is NUL-terminated   Upstream:
+    https://github.com/GNOME/libsoup/commit/3a6fb56a0cba42d11f5fd1db6ded
+    cc7c2e92757b
 
  -- deepin-ci-robot <packages@deepin.org>  Fri, 23 Oct 2026 02:19:03 +0800
 
